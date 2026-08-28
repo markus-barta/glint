@@ -57,23 +57,30 @@ enum SelfTests {
         }
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("always", forKey: "triggerMode")
-        defaults.set("command", forKey: "stickyModifier")
-        defaults.set(0.55, forKey: "stickyDoublePressInterval")
+        let customInspect = HotKey(keyCode: 2, modifiers: [.command, .control], keyLabel: "D")
+        GlintPreferences.save(customInspect, key: "inspectHotKey", defaults: defaults)
+        GlintPreferences.save(nil, key: "pinHotKey", defaults: defaults)
         guard GlintPreferences.load(defaults: defaults) == GlintPreferences(
             triggerMode: .always,
-            stickyModifier: .command,
-            stickyDoublePressInterval: 0.55
+            inspectHotKey: customInspect,
+            pinHotKey: nil
         ) else {
             fputs("self-test failed: persisted preferences\n", stderr)
             exit(1)
         }
-        var rapidPress = RapidPressDetector()
-        let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        guard !rapidPress.registerPress(at: start, maximumInterval: 0.40),
-              rapidPress.registerPress(at: start.addingTimeInterval(0.35), maximumInterval: 0.40),
-              !rapidPress.registerPress(at: start.addingTimeInterval(1.0), maximumInterval: 0.40),
-              !rapidPress.registerPress(at: start.addingTimeInterval(1.5), maximumInterval: 0.40) else {
-            fputs("self-test failed: rapid modifier sequence\n", stderr)
+        guard HotKey.inspect.label == "⌥Space", HotKey.pin.label == "⌥⇧Space",
+              HotKey.inspect.isSafeGlobalShortcut,
+              HotKey(keyCode: 120, modifiers: [], keyLabel: "F2").isSafeGlobalShortcut,
+              !HotKey(keyCode: 123, modifiers: [], keyLabel: "←").isSafeGlobalShortcut,
+              !HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A").isSafeGlobalShortcut else {
+            fputs("self-test failed: global shortcuts\n", stderr)
+            exit(1)
+        }
+        guard ProjectMatcher.bestMatch(for: "phraos")?.key == "PHAROS",
+              ProjectMatcher.bestMatch(for: "pamo")?.key == "PAI",
+              ProjectMatcher.bestMatch(for: "haus")?.key == "HAUSV",
+              ProjectMatcher.damerauLevenshtein("phraos", "pharos") == 1 else {
+            fputs("self-test failed: fuzzy project matching\n", stderr)
             exit(1)
         }
         print("GLINT self-tests passed")

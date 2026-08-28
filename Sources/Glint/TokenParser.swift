@@ -52,7 +52,7 @@ enum TokenParser {
 }
 
 enum CandidatePlanner {
-    static let ppmProjects: Set<String> = ["HAUSV", "JANUS", "PHAROS", "PAI", "INSPR"]
+    static let ppmProjects: Set<String> = ["GLINT", "HAUSV", "JANUS", "PHAROS", "PAI", "INSPR"]
     static let pmaProjects: Set<String> = ["START"]
 
     static func tracker(for project: String, context: ResolutionContext) -> Tracker {

@@ -4,7 +4,9 @@
 
 ## [0.2.0] - 2026-08-28
 
-- Detailed primary hover cards, scrollable pinned results, working settings, and configurable double-modifier sticky control.
+- Detailed primary hover cards plus a movable pinned navigator with result/project wheel navigation and focused ticket entry.
+- Configurable native global Inspect and Pin shortcuts, persistent working Settings, and dedicated GLINT menu-bar/app artwork.
+- Automatic semantic-version packaging, signed app metadata, and a maintained release history.
 
 ## [0.1.0] - 2026-08-28
 

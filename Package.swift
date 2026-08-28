@@ -5,6 +5,11 @@ let package = Package(
     name: "Glint",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "Glint", targets: ["Glint"])],
-    targets: [.executableTarget(name: "Glint")],
+    targets: [
+        .executableTarget(
+            name: "Glint",
+            resources: [.process("Resources")]
+        )
+    ],
     swiftLanguageVersions: [.v5]
 )
