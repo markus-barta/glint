@@ -11,10 +11,16 @@ import Foundation
     private var scanGeneration = 0
     private var optionWasHeld = false
     private var observedMode: TriggerMode
+    private var observedStickyModifier: StickyModifier
+    private var stickyModifierWasDown = false
+    private var stickyPressDetector = RapidPressDetector()
+    private var pendingStickyPin = false
+    private var suppressOptionTriggerUntilRelease = false
 
     init(appState: AppState) {
         self.appState = appState
         observedMode = appState.triggerMode
+        observedStickyModifier = appState.stickyModifier
     }
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
@@ -30,6 +36,8 @@ import Foundation
             }
             lastPermissionPollAt = Date()
         }
+        observeStickyShortcut()
+        if overlay.isSticky { return }
         let mode = appState?.triggerMode ?? .dwell
         if mode != observedMode {
             observedMode = mode
@@ -51,8 +59,14 @@ import Foundation
             guard Date().timeIntervalSince(stableSince) >= 0.30, dwellScannedPosition == nil else { return }
             if trigger(at: position, mode: mode) { dwellScannedPosition = position }
         case .option:
+            if suppressOptionTriggerUntilRelease {
+                if !NSEvent.modifierFlags.contains(.option) {
+                    suppressOptionTriggerUntilRelease = false
+                    optionWasHeld = false
+                }
+                return
+            }
             guard NSEvent.modifierFlags.contains(.option) else {
-                if optionWasHeld { scanGeneration += 1; overlay.hide() }
                 optionWasHeld = false
                 return
             }
@@ -79,13 +93,25 @@ import Foundation
             let lines = await resolve(tokens: tokens)
             guard generation == scanGeneration,
                   appState?.triggerMode == triggerMode,
-                  hypot(NSEvent.mouseLocation.x - position.x, NSEvent.mouseLocation.y - position.y) <= 4,
-                  triggerMode != .option || NSEvent.modifierFlags.contains(.option) else {
+                  hypot(NSEvent.mouseLocation.x - position.x, NSEvent.mouseLocation.y - position.y) <= 4 else {
                 appState?.activity = "Ready"
+                pendingStickyPin = false
                 return
             }
-            if lines.isEmpty { overlay.hide(); appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match" }
-            else { overlay.show(lines, near: position); appState?.activity = lines.first?.title ?? "Ready" }
+            if lines.isEmpty {
+                overlay.hide()
+                pendingStickyPin = false
+                appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
+            } else {
+                overlay.show(lines, near: position, shortcutLabel: stickyShortcutLabel)
+                if pendingStickyPin {
+                    overlay.pin(shortcutLabel: stickyShortcutLabel)
+                    pendingStickyPin = false
+                    appState?.activity = "Pinned · \(lines.first?.title ?? "result")"
+                } else {
+                    appState?.activity = lines.first?.title ?? "Ready"
+                }
+            }
         }
         return true
     }
@@ -93,33 +119,32 @@ import Foundation
     private func resolve(tokens: [NearbyToken]) async -> [GlintLine] {
         guard !tokens.isEmpty else { return [] }
         var context = ResolutionContext.load()
-        var matchesOutput: [GlintLine] = []
-        var misses: [GlintLine] = []
-        var candidateBudget = 6
+        var attempts: [GlintLine?] = []
+        var realMatchCount = 0
+        var candidateBudget = 16
         let prioritized = tokens.sorted { tokenPriority($0) < tokenPriority($1) }
-        for token in prioritized.prefix(8) {
+        for token in prioritized.prefix(12) {
             let specs = CandidatePlanner.candidates(for: token, context: context)
-            if specs.isEmpty {
-                misses.append(.miss(token.raw))
-                continue
-            }
+            if specs.isEmpty { continue }
             var matches: [GlintLine] = []
             for spec in specs where candidateBudget > 0 {
                 candidateBudget -= 1
-                if let line = await resolver.resolve(spec) { matches.append(line) }
-                if matches.count + matchesOutput.count >= 3 { break }
+                let line = await resolver.resolve(spec)
+                attempts.append(line)
+                if let line {
+                    matches.append(line)
+                    realMatchCount += 1
+                }
+                if realMatchCount >= HoverResultPolicy.maximumResults { break }
             }
-            if matches.isEmpty { misses.append(.miss(token.raw)) }
-            else { matchesOutput.append(contentsOf: matches) }
             if let first = matches.first,
                case let .issueKey(project, _) = token.kind,
                let actualTracker = Tracker(rawValue: first.source) {
                 context.saw(project: project, on: actualTracker)
             }
-            if matchesOutput.count >= 3 || candidateBudget == 0 { break }
+            if realMatchCount >= HoverResultPolicy.maximumResults || candidateBudget == 0 { break }
         }
-        var seen = Set<String>()
-        return (matchesOutput + misses).filter { seen.insert($0.id).inserted }.prefix(3).map { $0 }
+        return HoverResultPolicy.visible(from: attempts)
     }
 
     private func tokenPriority(_ token: NearbyToken) -> Int {
@@ -127,6 +152,53 @@ import Foundation
         case .issueKey: return 0
         case .hashNumber, .bareNumber: return 1
         case .version: return 2
+        }
+    }
+
+    private var stickyShortcutLabel: String {
+        "\(appState?.stickyModifier.symbol ?? StickyModifier.option.symbol) twice"
+    }
+
+    private func observeStickyShortcut() {
+        let modifier = appState?.stickyModifier ?? .option
+        let flags = NSEvent.modifierFlags
+        let isDown = flags.contains(eventFlag(for: modifier))
+        if modifier != observedStickyModifier {
+            observedStickyModifier = modifier
+            stickyModifierWasDown = isDown
+            stickyPressDetector.reset()
+            pendingStickyPin = false
+            return
+        }
+        defer { stickyModifierWasDown = isDown }
+        guard isDown, !stickyModifierWasDown else { return }
+        let now = Date()
+        let interval = appState?.stickyDoublePressInterval ?? GlintPreferences.defaultStickyDoublePressInterval
+        guard stickyPressDetector.registerPress(at: now, maximumInterval: interval) else { return }
+        if modifier == .option { suppressOptionTriggerUntilRelease = true }
+        if overlay.isSticky {
+            overlay.closePinned()
+            pendingStickyPin = false
+            scanGeneration += 1
+            lastPosition = NSEvent.mouseLocation
+            stableSince = now
+            dwellScannedPosition = nil
+            appState?.activity = "Ready"
+        } else if overlay.isVisible {
+            overlay.pin(shortcutLabel: stickyShortcutLabel)
+            appState?.activity = "Pinned"
+        } else if isScanning {
+            pendingStickyPin = true
+            appState?.activity = "Pinning result…"
+        }
+    }
+
+    private func eventFlag(for modifier: StickyModifier) -> NSEvent.ModifierFlags {
+        switch modifier {
+        case .option: return .option
+        case .control: return .control
+        case .command: return .command
+        case .shift: return .shift
         }
     }
 }
