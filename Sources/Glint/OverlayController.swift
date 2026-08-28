@@ -280,7 +280,7 @@ private struct OverlayContent: View {
 
     private func cycleResult(_ direction: Int) {
         guard displayedLines.count > 1 else { return }
-        selectedIndex = (selectedIndex + direction + displayedLines.count) % displayedLines.count
+        selectedIndex = CircularNavigation.advancedIndex(current: selectedIndex, direction: direction, count: displayedLines.count)
         inputText = nil; projectPreview = nil; renderPinned(useSavedPosition: false)
         if let selectedLine { onSelectionChange?(selectedLine) }
     }
@@ -291,7 +291,7 @@ private struct OverlayContent: View {
         var origin = CGPoint(x: anchorMouse.x + 18, y: anchorMouse.y - size.height - 18)
         if origin.x + size.width > visible.maxX { origin.x = anchorMouse.x - size.width - 18 }
         if origin.y < visible.minY { origin.y = anchorMouse.y + 18 }
-        origin = clamp(origin: origin, size: size, to: visible)
+        origin = PanelPlacement.clamped(origin: origin, size: size, visibleFrame: visible)
         panel.contentView = hostingView()
         isPositioningProgrammatically = true; panel.setFrame(CGRect(origin: origin, size: size), display: true); isPositioningProgrammatically = false
     }
@@ -301,7 +301,7 @@ private struct OverlayContent: View {
         let size = CGSize(width: OverlayMetrics.width, height: OverlayMetrics.pinnedHeight)
         let targetScreen = useSavedPosition ? screen(containing: anchorMouse) : (panel.screen ?? screen(containing: NSEvent.mouseLocation))
         let visible = targetScreen.visibleFrame
-        let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : clamp(origin: panel.frame.origin, size: size, to: visible)
+        let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : PanelPlacement.clamped(origin: panel.frame.origin, size: size, visibleFrame: visible)
         panel.contentView = hostingView()
         isPositioningProgrammatically = true; panel.setFrame(CGRect(origin: origin, size: size), display: true); isPositioningProgrammatically = false
         if shouldRemainFocused { panel.makeKey() }
@@ -312,18 +312,14 @@ private struct OverlayContent: View {
     }
 
     private func screen(containing point: CGPoint) -> NSScreen { NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens[0] }
-    private func clamp(origin: CGPoint, size: CGSize, to visible: CGRect) -> CGPoint {
-        let inset: CGFloat = 8
-        return CGPoint(x: min(max(origin.x, visible.minX + inset), visible.maxX - size.width - inset), y: min(max(origin.y, visible.minY + inset), visible.maxY - size.height - inset))
-    }
     private func screenID(_ screen: NSScreen) -> String { String((screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0) }
     private func savedOrigin(for screen: NSScreen, size: CGSize) -> CGPoint {
         let key = "pinnedOrigin.\(screenID(screen))"
         if let value = UserDefaults.standard.string(forKey: key) {
             let parts = value.split(separator: ",").compactMap { Double($0) }
-            if parts.count == 2 { return clamp(origin: CGPoint(x: parts[0], y: parts[1]), size: size, to: screen.visibleFrame) }
+            if parts.count == 2 { return PanelPlacement.clamped(origin: CGPoint(x: parts[0], y: parts[1]), size: size, visibleFrame: screen.visibleFrame) }
         }
-        return clamp(origin: CGPoint(x: screen.visibleFrame.maxX - size.width - 20, y: screen.visibleFrame.maxY - size.height - 20), size: size, to: screen.visibleFrame)
+        return PanelPlacement.clamped(origin: CGPoint(x: screen.visibleFrame.maxX - size.width - 20, y: screen.visibleFrame.maxY - size.height - 20), size: size, visibleFrame: screen.visibleFrame)
     }
     private func savePinnedOrigin() {
         guard let screen = panel.screen else { return }

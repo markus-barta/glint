@@ -104,7 +104,7 @@ private enum GlintBrand {
 
     private func configureHotKeys() {
         guard coordinator != nil else { return }
-        if let inspectHotKey, inspectHotKey == pinHotKey {
+        if GlintPreferences.shortcutsConflict(inspect: inspectHotKey, pin: pinHotKey), let inspectHotKey {
             hotKeyMonitor.configure(inspect: inspectHotKey, pin: nil)
             hotKeyError = ["Inspect and Pin must use different shortcuts.", hotKeyMonitor.errors[.inspect]]
                 .compactMap { $0 }.joined(separator: " ")

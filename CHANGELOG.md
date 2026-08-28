@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-28
+
+- Harden pinned focus and add navigator state regression coverage
+
 ## [0.2.0] - 2026-08-28
 
 - Detailed primary hover cards plus a movable pinned navigator with result/project wheel navigation and focused ticket entry.
