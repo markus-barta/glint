@@ -136,6 +136,24 @@ struct ResolutionContext: Equatable {
     }
 }
 
+struct PinnedTicketContext: Equatable {
+    var project: String
+    var number: Int?
+
+    static func load(defaults: UserDefaults = .standard, fallback: ResolutionContext = .load()) -> PinnedTicketContext {
+        PinnedTicketContext(
+            project: defaults.string(forKey: "pinnedProject") ?? fallback.project(for: fallback.lastSeenTracker),
+            number: defaults.object(forKey: "pinnedNumber") as? Int
+        )
+    }
+
+    func persist(defaults: UserDefaults = .standard) {
+        defaults.set(project, forKey: "pinnedProject")
+        if let number { defaults.set(number, forKey: "pinnedNumber") }
+        else { defaults.removeObject(forKey: "pinnedNumber") }
+    }
+}
+
 enum CandidateSpec: Hashable {
     case issue(tracker: Tracker, key: String)
     case pullRequest(number: Int, repo: String)

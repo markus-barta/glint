@@ -36,6 +36,7 @@ import Foundation
 #endif
         overlay.onCycleProject = { [weak self] direction in self?.cycleProject(direction) }
         overlay.onInput = { [weak self] event in self?.handleInput(event) }
+        overlay.onSelectionChange = { [weak self] _ in self?.syncSelectionContext() }
     }
 
     func start() {
@@ -217,18 +218,20 @@ import Foundation
     private var currentProject: String {
         get {
             if let (project, _) = overlay.selectedLine.flatMap({ Self.projectAndNumber(from: $0.key) }) { return project }
-            return UserDefaults.standard.string(forKey: "pinnedProject") ?? ResolutionContext.load().project(for: ResolutionContext.load().lastSeenTracker)
+            return PinnedTicketContext.load().project
         }
-        set { UserDefaults.standard.set(newValue, forKey: "pinnedProject") }
+        set {
+            var context = PinnedTicketContext.load(); context.project = newValue; context.persist()
+        }
     }
     private var currentNumber: Int? {
         if let (_, number) = overlay.selectedLine.flatMap({ Self.projectAndNumber(from: $0.key) }) { return number }
-        return UserDefaults.standard.object(forKey: "pinnedNumber") as? Int
+        return PinnedTicketContext.load().number
     }
 
     private func syncSelectionContext() {
         guard let (project, number) = overlay.selectedLine.flatMap({ Self.projectAndNumber(from: $0.key) }) else { return }
-        currentProject = project; UserDefaults.standard.set(number, forKey: "pinnedNumber")
+        PinnedTicketContext(project: project, number: number).persist()
     }
 
     private func handleInput(_ event: PinnedInputEvent) {
@@ -292,7 +295,7 @@ import Foundation
         }
         guard let numberBuffer, let number = Int(numberBuffer), number > 0 else { return }
         self.numberBuffer = nil
-        UserDefaults.standard.set(number, forKey: "pinnedNumber")
+        PinnedTicketContext(project: currentProject, number: number).persist()
         let project = ProjectDescriptor.known.first(where: { $0.key == currentProject })
             ?? ProjectDescriptor(key: currentProject, name: currentProject, aliases: [], tracker: ResolutionContext.load().lastSeenTracker)
         resolveDirect(project: project, number: number)
@@ -304,12 +307,12 @@ import Foundation
         }
         switch token.kind {
         case let .issueKey(project, number):
-            currentProject = project; UserDefaults.standard.set(number, forKey: "pinnedNumber")
+            PinnedTicketContext(project: project, number: number).persist()
             let descriptor = ProjectDescriptor.known.first(where: { $0.key == project })
                 ?? ProjectDescriptor(key: project, name: project, aliases: [], tracker: CandidatePlanner.tracker(for: project, context: .load()))
             resetEditing(); resolveDirect(project: descriptor, number: number)
         case let .hashNumber(number), let .bareNumber(number):
-            UserDefaults.standard.set(number, forKey: "pinnedNumber")
+            PinnedTicketContext(project: currentProject, number: number).persist()
             let descriptor = ProjectDescriptor.known.first(where: { $0.key == currentProject })
                 ?? ProjectDescriptor(key: currentProject, name: currentProject, aliases: [], tracker: ResolutionContext.load().lastSeenTracker)
             resetEditing(); resolveDirect(project: descriptor, number: number)
@@ -322,6 +325,7 @@ import Foundation
         editTask?.cancel(); directGeneration += 1
         let generation = directGeneration
         let key = "\(project.key)-\(number)"
+        PinnedTicketContext(project: project.key, number: number).persist()
         overlay.setInput(key); appState?.activity = "Resolving \(key)…"
         Task {
             var trackers = [project.tracker]
@@ -338,7 +342,7 @@ import Foundation
             if let (line, tracker) = resolved {
                 overlay.replacePinnedResults([line], selecting: line.key)
                 var context = ResolutionContext.load(); context.saw(project: project.key, on: tracker)
-                currentProject = project.key; UserDefaults.standard.set(number, forKey: "pinnedNumber")
+                PinnedTicketContext(project: project.key, number: number).persist()
                 appState?.activity = line.title
             } else {
                 overlay.showPinnedStatus("No real match for \(key)")

@@ -14,7 +14,7 @@ binary_dir=$(cd "$repo_dir" && swift build -c "$configuration" --show-bin-path)
 app_dir="$repo_dir/dist/Glint.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp "$binary_dir/Glint" "$app_dir/Contents/MacOS/Glint"
-rm -rf "$app_dir/Glint_Glint.bundle" "$app_dir/Contents/Resources/Brand"
+rm -rf "$app_dir/Contents/Resources/Brand"
 cp -R "$repo_dir/Sources/Glint/Resources/Brand" "$app_dir/Contents/Resources/Brand"
 chmod +x "$app_dir/Contents/MacOS/Glint"
 icon_work=$(mktemp -d)

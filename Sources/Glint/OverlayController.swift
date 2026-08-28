@@ -151,6 +151,7 @@ private struct OverlayContent: View {
 @MainActor final class OverlayController: NSObject, NSWindowDelegate {
     var onCycleProject: ((Int) -> Void)?
     var onInput: ((PinnedInputEvent) -> Void)?
+    var onSelectionChange: ((GlintLine) -> Void)?
 
     private let panel: FocusablePanel
     private var displayedLines: [GlintLine] = []
@@ -196,6 +197,7 @@ private struct OverlayContent: View {
 
     func openPinned(shortcutLabel: String, status: String = "Reading near pointer…") {
         isSticky = true; displayedLines = []; selectedIndex = 0; statusText = status
+        anchorMouse = NSEvent.mouseLocation
         inputText = nil; projectPreview = nil; self.shortcutLabel = shortcutLabel
         panel.ignoresMouseEvents = false; renderPinned(useSavedPosition: true)
         panel.makeKeyAndOrderFront(nil)
@@ -263,7 +265,7 @@ private struct OverlayContent: View {
         case 53: onInput?(.escape); return nil
         default: break
         }
-        guard !event.modifierFlags.intersection([.command, .control, .option]).isEmpty == false,
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
               let characters = event.charactersIgnoringModifiers else { return event }
         let digits = characters.filter(\.isNumber)
         if !digits.isEmpty { onInput?(.digits(digits)); return nil }
@@ -276,6 +278,7 @@ private struct OverlayContent: View {
         guard displayedLines.count > 1 else { return }
         selectedIndex = (selectedIndex + direction + displayedLines.count) % displayedLines.count
         inputText = nil; projectPreview = nil; renderPinned(useSavedPosition: false)
+        if let selectedLine { onSelectionChange?(selectedLine) }
     }
 
     private func renderTemporary() {
@@ -292,7 +295,7 @@ private struct OverlayContent: View {
     private func renderPinned(useSavedPosition: Bool) {
         let shouldRemainFocused = panel.isKeyWindow
         let size = CGSize(width: OverlayMetrics.width, height: OverlayMetrics.pinnedHeight)
-        let targetScreen = panel.screen ?? screen(containing: NSEvent.mouseLocation)
+        let targetScreen = useSavedPosition ? screen(containing: anchorMouse) : (panel.screen ?? screen(containing: NSEvent.mouseLocation))
         let visible = targetScreen.visibleFrame
         let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : clamp(origin: panel.frame.origin, size: size, to: visible)
         panel.contentView = hostingView()

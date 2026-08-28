@@ -83,6 +83,12 @@ enum SelfTests {
             fputs("self-test failed: fuzzy project matching\n", stderr)
             exit(1)
         }
+        let pinned = PinnedTicketContext(project: "PAI", number: 843)
+        pinned.persist(defaults: defaults)
+        guard PinnedTicketContext.load(defaults: defaults, fallback: context) == pinned else {
+            fputs("self-test failed: pinned ticket context\n", stderr)
+            exit(1)
+        }
         print("GLINT self-tests passed")
         exit(0)
     }

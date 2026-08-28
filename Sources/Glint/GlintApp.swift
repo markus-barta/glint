@@ -23,9 +23,20 @@ private enum GlintBrand {
         image(named: "glint-app-icon-1024") ?? NSApp.applicationIconImage
     }
     static var menuBarIcon: NSImage {
-        let image = image(named: "glint-menubar-18") ?? NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "GLINT")!
-        image.isTemplate = true
-        return image
+        let targetSize = NSSize(width: 18, height: 18)
+        let combined = NSImage(size: targetSize)
+        for name in ["glint-menubar-18", "glint-menubar-36"] {
+            guard let source = image(named: name) else { continue }
+            for representation in source.representations {
+                representation.size = targetSize
+                combined.addRepresentation(representation)
+            }
+        }
+        let result = combined.representations.isEmpty
+            ? NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "GLINT")!
+            : combined
+        result.isTemplate = true
+        return result
     }
 }
 
@@ -94,8 +105,9 @@ private enum GlintBrand {
     private func configureHotKeys() {
         guard coordinator != nil else { return }
         if let inspectHotKey, inspectHotKey == pinHotKey {
-            hotKeyError = "Inspect and Pin must use different shortcuts."
             hotKeyMonitor.configure(inspect: inspectHotKey, pin: nil)
+            hotKeyError = ["Inspect and Pin must use different shortcuts.", hotKeyMonitor.errors[.inspect]]
+                .compactMap { $0 }.joined(separator: " ")
             return
         }
         hotKeyMonitor.configure(inspect: inspectHotKey, pin: pinHotKey)
@@ -298,8 +310,12 @@ private struct AboutView: View {
     var body: some Scene {
         MenuBarExtra {
             Text(state.screenRecordingGranted ? state.activity : "Screen Recording required").lineLimit(1)
-            if let inspect = state.inspectHotKey { Text("Inspect: \(inspect.label)") }
-            if let pin = state.pinHotKey { Text("Pin: \(pin.label)") }
+            if let hotKeyError = state.hotKeyError {
+                Label(hotKeyError, systemImage: "exclamationmark.triangle.fill")
+            } else {
+                if let inspect = state.inspectHotKey { Text("Inspect: \(inspect.label)") }
+                if let pin = state.pinHotKey { Text("Pin: \(pin.label)") }
+            }
             Divider()
             Picker("Trigger", selection: $state.triggerMode) { ForEach(TriggerMode.allCases) { mode in Text(mode.label).tag(mode) } }
             Divider()

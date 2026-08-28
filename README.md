@@ -19,6 +19,16 @@ GLINT watches a small area around the pointer, recognizes ticket keys and number
 
 No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to a model.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/pinned-navigator.png" width="760" alt="GLINT pinned ticket navigator showing a detailed ticket card and navigation controls">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" width="520" alt="GLINT Settings with automatic reading, global shortcut recorders, navigator guidance, and privacy status">
+</p>
+
 ## How it feels
 
 GLINT has two configurable global commands:
