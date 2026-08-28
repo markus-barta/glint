@@ -201,6 +201,10 @@ private struct OverlayContent: View {
         inputText = nil; projectPreview = nil; self.shortcutLabel = shortcutLabel
         panel.ignoresMouseEvents = false; renderPinned(useSavedPosition: true)
         panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isSticky else { return }
+            self.panel.makeKeyAndOrderFront(nil)
+        }
     }
 
     func pin(shortcutLabel: String) {
