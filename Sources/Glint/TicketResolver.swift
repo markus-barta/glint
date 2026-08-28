@@ -5,9 +5,21 @@ private struct PaimosIssue: Decodable {
     let issueKey: String
     let title: String
     let status: String
-    enum CodingKeys: String, CodingKey { case issueKey = "issue_key", title, status }
+    let type: String?
+    let priority: String?
+    let description: String?
+    enum CodingKeys: String, CodingKey { case issueKey = "issue_key", title, status, type, priority, description }
 }
-private struct PullRequest: Decodable { let number: Int; let title: String; let state: String }
+private struct PullRequest: Decodable {
+    struct Author: Decodable { let login: String }
+    let number: Int
+    let title: String
+    let state: String
+    let body: String?
+    let isDraft: Bool
+    let reviewDecision: String?
+    let author: Author?
+}
 private struct CacheEntry: Codable { let line: GlintLine?; let savedAt: Date }
 
 actor TicketResolver {
@@ -40,14 +52,37 @@ actor TicketResolver {
         guard let executable = Self.findExecutable(named: "paimos"),
               let data = await Self.run(executable, ["--instance", tracker.rawValue, "--json", "issue", "get", key]),
               let issue = try? JSONDecoder().decode(PaimosIssue.self, from: data) else { return nil }
-        return GlintLine(key: issue.issueKey, state: issue.status, title: issue.title, source: tracker.rawValue)
+        let metadata = [
+            issue.type?.replacingOccurrences(of: "_", with: " "),
+            issue.priority.map { "\($0) priority" },
+        ].compactMap { $0 }.joined(separator: " · ")
+        return GlintLine(
+            key: issue.issueKey,
+            state: issue.status,
+            title: issue.title,
+            source: tracker.rawValue,
+            metadata: metadata,
+            detail: Self.excerpt(issue.description)
+        )
     }
 
     private func resolvePullRequest(number: Int, repo: String) async -> GlintLine? {
         guard let executable = Self.findExecutable(named: "gh"),
-              let data = await Self.run(executable, ["pr", "view", "\(number)", "--repo", repo, "--json", "number,title,state"]),
+              let data = await Self.run(executable, ["pr", "view", "\(number)", "--repo", repo, "--json", "author,body,isDraft,number,reviewDecision,state,title"]),
               let pr = try? JSONDecoder().decode(PullRequest.self, from: data) else { return nil }
-        return GlintLine(key: "#\(pr.number)", state: pr.state.lowercased(), title: pr.title, source: "gh")
+        let metadata = [
+            repo,
+            pr.author.map { "@\($0.login)" },
+            pr.reviewDecision?.lowercased().replacingOccurrences(of: "_", with: " "),
+        ].compactMap { $0 }.joined(separator: " · ")
+        return GlintLine(
+            key: "#\(pr.number)",
+            state: pr.isDraft ? "draft" : pr.state.lowercased(),
+            title: pr.title,
+            source: "gh",
+            metadata: metadata,
+            detail: Self.excerpt(pr.body)
+        )
     }
 
     private func persist() {
@@ -59,6 +94,13 @@ actor TicketResolver {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let paths = ["\(home)/.nix-profile/bin/\(name)", "/etc/profiles/per-user/\(NSUserName())/bin/\(name)", "/run/current-system/sw/bin/\(name)", "/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)", "/usr/bin/\(name)"]
         return paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }).map(URL.init(fileURLWithPath:))
+    }
+
+    private static func excerpt(_ raw: String?, limit: Int = 280) -> String {
+        guard let raw else { return "" }
+        let condensed = raw.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+        guard condensed.count > limit else { return condensed }
+        return String(condensed.prefix(limit - 1)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     private static func run(_ executable: URL, _ arguments: [String]) async -> Data? {
