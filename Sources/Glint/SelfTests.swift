@@ -72,8 +72,55 @@ enum SelfTests {
               HotKey.inspect.isSafeGlobalShortcut,
               HotKey(keyCode: 120, modifiers: [], keyLabel: "F2").isSafeGlobalShortcut,
               !HotKey(keyCode: 123, modifiers: [], keyLabel: "←").isSafeGlobalShortcut,
-              !HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A").isSafeGlobalShortcut else {
+              !HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A").isSafeGlobalShortcut,
+              GlintPreferences.shortcutsConflict(inspect: .inspect, pin: .inspect),
+              !GlintPreferences.shortcutsConflict(inspect: .inspect, pin: .pin),
+              !GlintPreferences.shortcutsConflict(inspect: nil, pin: .pin) else {
             fputs("self-test failed: global shortcuts\n", stderr)
+            exit(1)
+        }
+        guard PinCommandPolicy.action(for: .hidden) == .openPinned,
+              PinCommandPolicy.action(for: .temporary) == .pinTemporary,
+              PinCommandPolicy.action(for: .pinnedInactive) == .focusPinned,
+              PinCommandPolicy.action(for: .pinnedActive) == .closePinned else {
+            fputs("self-test failed: pin command state transitions\n", stderr)
+            exit(1)
+        }
+        guard CircularNavigation.advancedIndex(current: 0, direction: -1, count: 3) == 2,
+              CircularNavigation.advancedIndex(current: 2, direction: 1, count: 3) == 0,
+              CircularNavigation.advancedIndex(current: 1, direction: 1, count: 3) == 2,
+              CircularNavigation.advancedIndex(current: 7, direction: 1, count: 0) == 0 else {
+            fputs("self-test failed: circular result navigation\n", stderr)
+            exit(1)
+        }
+        let visibleFrame = CGRect(x: 100, y: 200, width: 800, height: 600)
+        guard PanelPlacement.clamped(origin: CGPoint(x: -500, y: 2_000), size: CGSize(width: 300, height: 200), visibleFrame: visibleFrame) == CGPoint(x: 108, y: 592),
+              PanelPlacement.clamped(origin: CGPoint(x: 400, y: 350), size: CGSize(width: 300, height: 200), visibleFrame: visibleFrame) == CGPoint(x: 400, y: 350) else {
+            fputs("self-test failed: screen clamping\n", stderr)
+            exit(1)
+        }
+        var editing = PinnedEditState()
+        editing.appendDigits("2"); editing.appendDigits("03")
+        guard editing.numberBuffer == "203", editing.projectQuery.isEmpty,
+              editing.backspace() == .number, editing.numberBuffer == "20" else {
+            fputs("self-test failed: rapid numeric editing\n", stderr)
+            exit(1)
+        }
+        editing.appendLetters("ph", currentProject: "START")
+        editing.appendLetters("raos", currentProject: "START")
+        guard editing.numberBuffer == nil, editing.projectQuery == "phraos", editing.projectBeforeQuery == "START",
+              editing.backspace() == .project, editing.projectQuery == "phrao" else {
+            fputs("self-test failed: project edit/revert state\n", stderr)
+            exit(1)
+        }
+        editing.clear()
+        guard !editing.hasInput else {
+            fputs("self-test failed: clearing pinned input\n", stderr)
+            exit(1)
+        }
+        let pasteTokens = TokenParser.parse(["PHAROS-203", "#123", "456"])
+        guard pasteTokens.map(\.kind) == [.issueKey(project: "PHAROS", number: 203), .hashNumber(123), .bareNumber(456)] else {
+            fputs("self-test failed: pasted ticket forms\n", stderr)
             exit(1)
         }
         guard ProjectMatcher.bestMatch(for: "phraos")?.key == "PHAROS",

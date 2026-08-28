@@ -73,6 +73,11 @@ struct GlintPreferences: Equatable {
         }
     }
 
+    static func shortcutsConflict(inspect: HotKey?, pin: HotKey?) -> Bool {
+        guard let inspect, let pin else { return false }
+        return inspect == pin
+    }
+
     private static func decodeHotKey(key: String, fallback: HotKey, defaults: UserDefaults) -> HotKey? {
         guard defaults.object(forKey: key) != nil else { return fallback }
         guard let data = defaults.data(forKey: key), !data.isEmpty else { return nil }
@@ -172,6 +177,68 @@ enum PinnedInputEvent {
     case submit
     case escape
     case paste(String)
+}
+
+enum PanelInteractionState { case hidden, temporary, pinnedInactive, pinnedActive }
+enum PinCommandAction: Equatable { case openPinned, pinTemporary, focusPinned, closePinned }
+
+enum PinCommandPolicy {
+    static func action(for state: PanelInteractionState) -> PinCommandAction {
+        switch state {
+        case .hidden: return .openPinned
+        case .temporary: return .pinTemporary
+        case .pinnedInactive: return .focusPinned
+        case .pinnedActive: return .closePinned
+        }
+    }
+}
+
+enum CircularNavigation {
+    static func advancedIndex(current: Int, direction: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return (current + direction % count + count) % count
+    }
+}
+
+enum PanelPlacement {
+    static func clamped(origin: CGPoint, size: CGSize, visibleFrame: CGRect, inset: CGFloat = 8) -> CGPoint {
+        CGPoint(
+            x: min(max(origin.x, visibleFrame.minX + inset), visibleFrame.maxX - size.width - inset),
+            y: min(max(origin.y, visibleFrame.minY + inset), visibleFrame.maxY - size.height - inset)
+        )
+    }
+}
+
+struct PinnedEditState: Equatable {
+    enum Channel { case number, project, none }
+
+    var numberBuffer: String?
+    var projectQuery = ""
+    var projectBeforeQuery: String?
+    var hasInput: Bool { numberBuffer != nil || !projectQuery.isEmpty }
+
+    mutating func appendDigits(_ value: String) {
+        projectQuery = ""; projectBeforeQuery = nil
+        numberBuffer = (numberBuffer ?? "") + value
+    }
+
+    mutating func appendLetters(_ value: String, currentProject: String) {
+        numberBuffer = nil
+        if projectQuery.isEmpty { projectBeforeQuery = currentProject }
+        projectQuery += value
+    }
+
+    mutating func backspace() -> Channel {
+        if !projectQuery.isEmpty {
+            projectQuery.removeLast(); return .project
+        }
+        if var value = numberBuffer, !value.isEmpty {
+            value.removeLast(); numberBuffer = value; return .number
+        }
+        return .none
+    }
+
+    mutating func clear() { numberBuffer = nil; projectQuery = ""; projectBeforeQuery = nil }
 }
 
 struct ProjectDescriptor: Hashable, Identifiable {

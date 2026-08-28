@@ -19,9 +19,7 @@ import Foundation
     private var scanGeneration = 0
     private var optionWasHeld = false
     private var observedMode: TriggerMode
-    private var numberBuffer: String?
-    private var projectQuery = ""
-    private var projectBeforeQuery: String?
+    private var editState = PinnedEditState()
     private var editTask: Task<Void, Never>?
     private var directGeneration = 0
     private var pendingManualScan: (CGPoint, Presentation)?
@@ -64,21 +62,24 @@ import Foundation
     }
 
     func performPinCommand() {
-        if overlay.isSticky {
-            if overlay.isActive {
-                closePinned()
-            } else {
-                overlay.focusPinned()
-                appState?.activity = overlay.selectedLine.map { "Pinned · \($0.title)" } ?? "Pinned navigator"
-            }
+        let state: PanelInteractionState = overlay.isSticky
+            ? (overlay.isActive ? .pinnedActive : .pinnedInactive)
+            : (overlay.isVisible ? .temporary : .hidden)
+        switch PinCommandPolicy.action(for: state) {
+        case .closePinned:
+            closePinned(); return
+        case .focusPinned:
+            overlay.focusPinned()
+            appState?.activity = overlay.selectedLine.map { "Pinned · \($0.title)" } ?? "Pinned navigator"
             return
-        }
-        resetEditing()
-        if overlay.isVisible {
+        case .pinTemporary:
+            resetEditing()
             overlay.pin(shortcutLabel: pinShortcutLabel)
             syncSelectionContext()
             appState?.activity = "Pinned"
             return
+        case .openPinned:
+            resetEditing()
         }
         overlay.openPinned(shortcutLabel: pinShortcutLabel)
         appState?.activity = "Pinned · reading near pointer…"
@@ -237,28 +238,28 @@ import Foundation
     private func handleInput(_ event: PinnedInputEvent) {
         switch event {
         case let .digits(value):
-            projectQuery = ""; projectBeforeQuery = nil
-            numberBuffer = (numberBuffer ?? "") + value
-            overlay.setInput("\(currentProject)-\(numberBuffer ?? "")")
+            editState.appendDigits(value)
+            overlay.setInput("\(currentProject)-\(editState.numberBuffer ?? "")")
             scheduleResolve(after: 0.25)
         case let .letters(value):
-            numberBuffer = nil
-            if projectQuery.isEmpty { projectBeforeQuery = currentProject }
-            projectQuery += value
+            editState.appendLetters(value, currentProject: currentProject)
             previewProjectAndSchedule()
         case .backspace:
-            if !projectQuery.isEmpty {
-                projectQuery.removeLast(); previewProjectAndSchedule()
-            } else if var value = numberBuffer, !value.isEmpty {
-                value.removeLast(); numberBuffer = value
+            switch editState.backspace() {
+            case .project:
+                previewProjectAndSchedule()
+            case .number:
+                let value = editState.numberBuffer ?? ""
                 overlay.setInput(value.isEmpty ? nil : "\(currentProject)-\(value)")
                 if !value.isEmpty { scheduleResolve(after: 0.25) }
+            case .none:
+                break
             }
         case .submit:
             editTask?.cancel(); commitEditing()
         case .escape:
-            if numberBuffer != nil || !projectQuery.isEmpty {
-                if let projectBeforeQuery { currentProject = projectBeforeQuery }
+            if editState.hasInput {
+                if let projectBeforeQuery = editState.projectBeforeQuery { currentProject = projectBeforeQuery }
                 resetEditing(); overlay.setInput(nil)
             } else { closePinned() }
         case let .paste(value):
@@ -268,9 +269,9 @@ import Foundation
 
     private func previewProjectAndSchedule() {
         editTask?.cancel()
-        guard !projectQuery.isEmpty else { overlay.setInput(nil); return }
-        let match = ProjectMatcher.bestMatch(for: projectQuery, current: currentProject)
-        overlay.setInput(projectQuery, projectPreview: match?.key)
+        guard !editState.projectQuery.isEmpty else { overlay.setInput(nil); return }
+        let match = ProjectMatcher.bestMatch(for: editState.projectQuery, current: currentProject)
+        overlay.setInput(editState.projectQuery, projectPreview: match?.key)
         scheduleResolve(after: 0.32)
     }
 
@@ -284,17 +285,17 @@ import Foundation
     }
 
     private func commitEditing() {
-        if !projectQuery.isEmpty {
-            guard let match = ProjectMatcher.bestMatch(for: projectQuery, current: currentProject) else { return }
+        if !editState.projectQuery.isEmpty {
+            guard let match = ProjectMatcher.bestMatch(for: editState.projectQuery, current: currentProject) else { return }
             currentProject = match.key
             let number = currentNumber
-            projectQuery = ""; projectBeforeQuery = nil
+            editState.clear()
             if let number { resolveDirect(project: match, number: number) }
             else { overlay.setInput(match.key) }
             return
         }
-        guard let numberBuffer, let number = Int(numberBuffer), number > 0 else { return }
-        self.numberBuffer = nil
+        guard let numberBuffer = editState.numberBuffer, let number = Int(numberBuffer), number > 0 else { return }
+        editState.numberBuffer = nil
         PinnedTicketContext(project: currentProject, number: number).persist()
         let project = ProjectDescriptor.known.first(where: { $0.key == currentProject })
             ?? ProjectDescriptor(key: currentProject, name: currentProject, aliases: [], tracker: ResolutionContext.load().lastSeenTracker)
@@ -353,7 +354,7 @@ import Foundation
     }
 
     private func resetEditing() {
-        editTask?.cancel(); editTask = nil; numberBuffer = nil; projectQuery = ""; projectBeforeQuery = nil
+        editTask?.cancel(); editTask = nil; editState.clear()
     }
     private func closePinned() {
         scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned()
