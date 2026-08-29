@@ -132,6 +132,10 @@ struct RecognizedTextFragment: Hashable, Sendable {
 }
 
 actor ScreenOCR {
+    private static let identifierRegex = try! NSRegularExpression(
+        pattern: #"[A-Za-z][A-Za-z0-9]{1,31}-[0-9]+|#[0-9]+|[0-9]+(?:\.[0-9]+){2,}|[0-9]+"#
+    )
+
     /// Compatibility API used by the current resolver pipeline.
     func recognize(plan: CapturePlan) -> [String] {
         performRecognition(plan: plan, preservingIdentifierGeometry: false).map(\.text)
@@ -183,12 +187,9 @@ actor ScreenOCR {
         let nsString = string as NSString
         // This deliberately recognizes shapes rather than projects/sources.
         // Project inference remains the resolver's responsibility.
-        let pattern = #"[A-Za-z][A-Za-z0-9]{1,31}-[0-9]+|#[0-9]+|[0-9]+(?:\.[0-9]+){2,}|[0-9]+"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-
         var occupied: [NSRange] = []
         var spans: [RecognizedTextSpan] = []
-        for match in regex.matches(in: string, range: NSRange(location: 0, length: nsString.length)) {
+        for match in Self.identifierRegex.matches(in: string, range: NSRange(location: 0, length: nsString.length)) {
             guard !occupied.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
                   let swiftRange = Range(match.range, in: string),
                   let box = try? candidate.boundingBox(for: swiftRange) else { continue }

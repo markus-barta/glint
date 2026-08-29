@@ -4,6 +4,7 @@ import Foundation
 /// unconditional and is intentionally handled by `HoverCoordinator`.
 enum HoverInvocationPolicy {
     static let holdRepeatInterval: TimeInterval = 0.65
+    static let continuousMovementSettleDuration: TimeInterval = 0.12
 
     static func shouldTrigger(
         preferences: ActivationPreferences,
@@ -22,8 +23,55 @@ enum HoverInvocationPolicy {
             return heldModifiers.intersection(required) == required &&
                 elapsedSinceLastScan >= holdRepeatInterval
         case .continuous:
-            return elapsedSinceLastScan >= preferences.scanInterval
+            return stableDuration >= continuousMovementSettleDuration &&
+                elapsedSinceLastScan >= preferences.scanInterval
         }
+    }
+}
+
+enum ManualInspectionPolicy {
+    static let movementGraceRadius: CGFloat = 36
+    static let lifetime: TimeInterval = 8
+
+    static func shouldDismiss(distanceFromAnchor: CGFloat, elapsed: TimeInterval, escapePressed: Bool = false) -> Bool {
+        escapePressed || distanceFromAnchor > movementGraceRadius || elapsed >= lifetime
+    }
+}
+
+enum ScanAnchorPolicy {
+    static let maximumAnchors = 3
+
+    static func sourceOrders(tokens: [NearbyToken], plan: ResolutionPlan) -> [Int] {
+        let eligible = Set(tokens.compactMap { token -> Int? in
+            if case .version = token.kind { return nil }
+            return token.sourceOrder
+        })
+        var seen = Set<Int>()
+        return plan.proposals.compactMap { proposal in
+            eligible.contains(proposal.sourceOrder) && seen.insert(proposal.sourceOrder).inserted
+                ? proposal.sourceOrder : nil
+        }.prefix(maximumAnchors).map { $0 }
+    }
+}
+
+enum ScanTerminalFeedback: Equatable { case resolved, noMatch, none }
+
+enum ScanTerminalFeedbackPolicy {
+    static func event(hasResolvedResult: Bool, hasAnchor: Bool) -> ScanTerminalFeedback {
+        if !hasResolvedResult { return .noMatch }
+        return hasAnchor ? .resolved : .none
+    }
+}
+
+enum ResolutionLookupPolicy {
+    static let maximumConcurrentLookups = 4
+
+    static func initialCount(total: Int) -> Int {
+        min(max(0, total), maximumConcurrentLookups)
+    }
+
+    static func shouldLaunchNext(launched: Int, total: Int, resolvedCount: Int, maximumResults: Int) -> Bool {
+        launched < total && resolvedCount < maximumResults
     }
 }
 

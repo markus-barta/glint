@@ -22,7 +22,7 @@ private struct PullRequest: Decodable {
 }
 private struct CacheEntry: Codable { let line: GlintLine?; let savedAt: Date }
 
-struct ResolvedCandidate: Hashable {
+struct ResolvedCandidate: Hashable, Sendable {
     let proposal: CandidateProposal
     let line: GlintLine
 }
@@ -51,20 +51,41 @@ actor TicketResolver {
         return line
     }
 
-    /// Resolves the bounded evidence plan in parallel. Misses never enter the returned array,
-    /// and lookup completion order cannot affect presentation order.
+    /// Resolves at most four candidates concurrently. Once enough real, unique results exist,
+    /// no more subprocesses are launched; the bounded in-flight set is simply drained.
     func resolve(_ plan: ResolutionPlan) async -> [ResolvedCandidate] {
         let bounded = Array(plan.proposals.prefix(ResolutionPlan.maximumCandidates))
         guard !bounded.isEmpty else { return [] }
+        let maximumResults = HoverResultPolicy.maximumResults
         let resolved = await withTaskGroup(of: (Int, GlintLine?).self, returning: [(Int, GlintLine?)].self) { group in
-            for (index, proposal) in bounded.enumerated() {
+            var launched = ResolutionLookupPolicy.initialCount(total: bounded.count)
+            for index in 0..<launched {
+                let proposal = bounded[index]
                 group.addTask { [weak self] in
                     guard let self else { return (index, nil) }
                     return (index, await self.resolve(proposal.spec))
                 }
             }
             var values: [(Int, GlintLine?)] = []
-            for await value in group { values.append(value) }
+            var realIDs = Set<String>()
+            while let value = await group.next() {
+                values.append(value)
+                if let line = value.1 { realIDs.insert(line.id) }
+                if ResolutionLookupPolicy.shouldLaunchNext(
+                    launched: launched,
+                    total: bounded.count,
+                    resolvedCount: realIDs.count,
+                    maximumResults: maximumResults
+                ) {
+                    let index = launched
+                    let proposal = bounded[index]
+                    launched += 1
+                    group.addTask { [weak self] in
+                        guard let self else { return (index, nil) }
+                        return (index, await self.resolve(proposal.spec))
+                    }
+                }
+            }
             return values
         }
         var seen = Set<String>()
@@ -74,6 +95,8 @@ actor TicketResolver {
                 guard let line, seen.insert(line.id).inserted else { return nil }
                 return ResolvedCandidate(proposal: bounded[index], line: line)
             }
+            .prefix(maximumResults)
+            .map { $0 }
     }
 
     func clearCache() { cache.removeAll(); UserDefaults.standard.removeObject(forKey: defaultsKey) }

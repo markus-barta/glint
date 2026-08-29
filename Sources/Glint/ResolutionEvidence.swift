@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-struct ForegroundApplicationContext: Hashable {
+struct ForegroundApplicationContext: Hashable, Sendable {
     let bundleIdentifier: String?
     let applicationName: String?
     let windowTitle: String?
@@ -25,28 +25,28 @@ struct ForegroundApplicationContext: Hashable {
     }
 }
 
-enum EvidenceStrength: Int, Hashable {
+enum EvidenceStrength: Int, Hashable, Sendable {
     case fallback
     case weak
     case strong
     case decisive
 }
 
-struct ResolutionReason: Hashable {
+struct ResolutionReason: Hashable, Sendable {
     let code: String
     let label: String
     let weight: Int
     let strength: EvidenceStrength
 }
 
-enum ResolutionLearningEligibility: Int, Hashable {
+enum ResolutionLearningEligibility: Int, Hashable, Sendable {
     case never
     case userConfirmation
     case strongContext
     case explicit
 }
 
-struct CandidateProposal: Hashable {
+struct CandidateProposal: Hashable, Sendable {
     let spec: CandidateSpec
     let score: Int
     let reasons: [ResolutionReason]
@@ -62,7 +62,7 @@ struct CandidateProposal: Hashable {
     }
 }
 
-struct ResolutionPlan: Hashable {
+struct ResolutionPlan: Hashable, Sendable {
     static let closeScoreThreshold = 120
     static let maximumCandidates = 16
 
@@ -87,14 +87,14 @@ struct ResolutionPlan: Hashable {
     }
 }
 
-struct ResolutionLearningDecision: Hashable {
-    enum Basis: String, Hashable { case explicit, strongContext, userConfirmed }
+struct ResolutionLearningDecision: Hashable, Sendable {
+    enum Basis: String, Hashable, Sendable { case explicit, strongContext, userConfirmed }
     let proposal: CandidateProposal
     let basis: Basis
 }
 
-struct ApplicationResolutionHistory: Codable, Hashable {
-    struct Entry: Codable, Hashable {
+struct ApplicationResolutionHistory: Codable, Hashable, Sendable {
+    struct Entry: Codable, Hashable, Sendable {
         let bundleIdentifier: String
         let project: String?
         let tracker: Tracker?
@@ -151,7 +151,7 @@ struct ApplicationResolutionHistory: Codable, Hashable {
     }
 }
 
-struct WeightedHistorySignal: Hashable {
+struct WeightedHistorySignal: Hashable, Sendable {
     let project: String?
     let tracker: Tracker?
     let repo: String?
@@ -179,12 +179,33 @@ enum ResolutionHistoryStore {
         history.record(decision, bundleIdentifier: bundleIdentifier, now: now)
         if let data = try? JSONEncoder().encode(history) { defaults.set(data, forKey: defaultsKey) }
     }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultsKey)
+    }
+}
+
+enum LearnedContextStore {
+    static func clear(defaults: UserDefaults = .standard) {
+        ResolutionHistoryStore.clear(defaults: defaults)
+        ResolutionContext.clear(defaults: defaults)
+    }
 }
 
 enum EvidenceCandidatePlanner {
     private static let canonicalRepos = Set(ProjectDescriptor.known.compactMap {
         CandidatePlanner.repo(for: $0.key)?.lowercased()
     })
+    private static let githubURLRegex = try! NSRegularExpression(
+        pattern: #"(?i)https?://(?:www\.)?github\.com/([a-z0-9_.-]+)/([a-z0-9_.-]+?)(?:\.git)?(?:/pull/([0-9]+))?(?=[/?#\s]|$)"#
+    )
+    private static let repoSlugRegex = try! NSRegularExpression(
+        pattern: #"(?i)(?<![a-z0-9_.-])([a-z0-9_.-]+)/([a-z0-9_.-]+)(?![a-z0-9_.-])"#
+    )
+    private static let pullRequestLanguageRegex = try! NSRegularExpression(
+        pattern: #"\b(?:PR|pull[ -]?request)\b"#,
+        options: [.caseInsensitive]
+    )
 
     private struct ProjectMention: Hashable {
         let project: ProjectDescriptor
@@ -225,7 +246,7 @@ enum EvidenceCandidatePlanner {
         guard !tokens.isEmpty else { return ResolutionPlan(proposals: []) }
         let projectMentions = findProjectMentions(in: input)
         let repoMentions = findRepoMentions(in: input)
-        let prLanguageLines = linesMatching(#"\b(?:PR|pull[ -]?request)\b"#, in: input)
+        let prLanguageLines = linesMatching(pullRequestLanguageRegex, in: input)
         let foregroundText = [foreground?.bundleIdentifier, foreground?.applicationName, foreground?.windowTitle]
             .compactMap { $0 }.joined(separator: " ")
         let foregroundProjects = projectsMentioned(in: foregroundText)
@@ -462,27 +483,21 @@ enum EvidenceCandidatePlanner {
     }
 
     private static func findRepoMentions(in input: OCRContextInput) -> [RepoMention] {
-        let urlPattern = #"(?i)https?://(?:www\.)?github\.com/([a-z0-9_.-]+)/([a-z0-9_.-]+?)(?:\.git)?(?:/pull/([0-9]+))?(?=[/?#\s]|$)"#
-        let slugPattern = #"(?i)(?<![a-z0-9_.-])([a-z0-9_.-]+)/([a-z0-9_.-]+)(?![a-z0-9_.-])"#
         return input.fragments.enumerated().flatMap { fragmentIndex, fragment -> [RepoMention] in
             let ns = fragment.text as NSString
             var mentions: [RepoMention] = []
-            if let regex = try? NSRegularExpression(pattern: urlPattern) {
-                for match in regex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
-                    let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))"
-                    let number = match.range(at: 3).location == NSNotFound ? nil : Int(ns.substring(with: match.range(at: 3)))
-                    mentions.append(.init(repo: repo.lowercased(), fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: number, isGitHubURL: true))
-                }
+            for match in githubURLRegex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
+                let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))"
+                let number = match.range(at: 3).location == NSNotFound ? nil : Int(ns.substring(with: match.range(at: 3)))
+                mentions.append(.init(repo: repo.lowercased(), fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: number, isGitHubURL: true))
             }
-            if let regex = try? NSRegularExpression(pattern: slugPattern) {
-                for match in regex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
-                    let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))".lowercased()
-                    // A bare owner/name shape is commonly a source path,
-                    // date, or prose such as “and/or”. Only canonical repos
-                    // are trusted without explicit github.com URL evidence.
-                    guard !repo.hasPrefix("github.com/"), canonicalRepos.contains(repo) else { continue }
-                    mentions.append(.init(repo: repo, fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: nil, isGitHubURL: false))
-                }
+            for match in repoSlugRegex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
+                let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))".lowercased()
+                // A bare owner/name shape is commonly a source path,
+                // date, or prose such as “and/or”. Only canonical repos
+                // are trusted without explicit github.com URL evidence.
+                guard !repo.hasPrefix("github.com/"), canonicalRepos.contains(repo) else { continue }
+                mentions.append(.init(repo: repo, fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: nil, isGitHubURL: false))
             }
             return mentions
         }
@@ -515,8 +530,7 @@ enum EvidenceCandidatePlanner {
         }
     }
 
-    private static func linesMatching(_ pattern: String, in input: OCRContextInput) -> Set<Int> {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+    private static func linesMatching(_ regex: NSRegularExpression, in input: OCRContextInput) -> Set<Int> {
         return Set(input.fragments.compactMap { fragment in
             let range = NSRange(location: 0, length: (fragment.text as NSString).length)
             return regex.firstMatch(in: fragment.text, range: range) == nil ? nil : fragment.lineIndex
@@ -557,11 +571,40 @@ enum EvidenceCandidatePlanner {
 
     private static func wordOffset(of term: String, in text: String) -> Int? {
         guard !term.isEmpty else { return nil }
-        let escaped = NSRegularExpression.escapedPattern(for: term)
-        let pattern = "(?i)(?<![a-z0-9])\(escaped)(?![a-z0-9])"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let ns = text as NSString
-        return regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length))?.range.location
+        var search = NSRange(location: 0, length: ns.length)
+        while search.length > 0 {
+            let found = ns.range(of: term, options: [.caseInsensitive], range: search)
+            guard found.location != NSNotFound else { return nil }
+            let word = CharacterSet.alphanumerics
+            let beforeScalar = found.location > 0 ? UnicodeScalar(ns.character(at: found.location - 1)) : nil
+            let beforeIsWord = beforeScalar.map(word.contains) ?? false
+            let after = NSMaxRange(found)
+            let afterScalar = after < ns.length ? UnicodeScalar(ns.character(at: after)) : nil
+            let afterIsWord = afterScalar.map(word.contains) ?? false
+            if !beforeIsWord && !afterIsWord { return found.location }
+            let next = found.location + max(found.length, 1)
+            search = NSRange(location: next, length: ns.length - next)
+        }
+        return nil
+    }
+}
+
+actor TicketEvidencePlanner {
+    func plan(
+        input: OCRContextInput,
+        context: ResolutionContext,
+        pinned: PinnedTicketContext?,
+        foreground: ForegroundApplicationContext?,
+        history: ApplicationResolutionHistory
+    ) -> ResolutionPlan {
+        EvidenceCandidatePlanner.plan(
+            input: input,
+            context: context,
+            pinned: pinned,
+            foreground: foreground,
+            history: history
+        )
     }
 }
 

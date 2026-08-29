@@ -8,6 +8,7 @@ import Foundation
     private weak var appState: AppState?
     private let ocr = ScreenOCR()
     private let resolver = TicketResolver()
+    private let evidencePlanner = TicketEvidencePlanner()
     private let scanFeedback = ScanFeedbackController()
     private let overlay: OverlayController
     private var timer: Timer?
@@ -23,6 +24,11 @@ import Foundation
     private var editTask: Task<Void, Never>?
     private var directGeneration = 0
     private var pendingManualScan: (CGPoint, Presentation)?
+    private struct ManualInspectionState {
+        let anchor: CGPoint
+        let startedAt: Date
+    }
+    private var manualInspection: ManualInspectionState?
 
     init(appState: AppState) {
         self.appState = appState
@@ -61,6 +67,11 @@ import Foundation
         _ = trigger(at: NSEvent.mouseLocation, presentation: presentation, requiresStablePointer: false)
     }
 
+    func performDismissCommand() {
+        guard manualInspection != nil else { return }
+        dismissManualInspection()
+    }
+
     func performPinCommand() {
         let state: PanelInteractionState = overlay.isSticky
             ? (overlay.isActive ? .pinnedActive : .pinnedInactive)
@@ -73,6 +84,7 @@ import Foundation
             appState?.activity = overlay.selectedLine.map { "Pinned · \($0.title)" } ?? "Pinned navigator"
             return
         case .pinTemporary:
+            clearManualInspection()
             resetEditing()
             overlay.pin(shortcutLabel: pinShortcutLabel)
             syncSelectionContext()
@@ -102,6 +114,7 @@ import Foundation
                 appState?.screenRecordingGranted = granted
                 if !granted {
                     scanGeneration += 1
+                    clearManualInspection()
                     scanFeedback.cancel()
                     if !overlay.isSticky { overlay.hide() }
                 }
@@ -109,27 +122,38 @@ import Foundation
             lastPermissionPollAt = Date()
         }
         if overlay.isSticky { return }
+        let now = Date()
+        let position = NSEvent.mouseLocation
+        if let manualInspection {
+            let distance = hypot(position.x - manualInspection.anchor.x, position.y - manualInspection.anchor.y)
+            if ManualInspectionPolicy.shouldDismiss(
+                distanceFromAnchor: distance,
+                elapsed: now.timeIntervalSince(manualInspection.startedAt)
+            ) {
+                dismissManualInspection()
+            }
+            return
+        }
         let preferences = appState?.activationPreferences ?? .defaults
         if preferences != observedActivationPreferences {
             observedActivationPreferences = preferences
             scanGeneration += 1
             dwellScannedPosition = nil
-            stableSince = Date()
+            stableSince = now
             overlay.hide()
             scanFeedback.cancel()
         }
-        let position = NSEvent.mouseLocation
         if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
-            lastPosition = position; stableSince = Date(); dwellScannedPosition = nil; scanGeneration += 1; overlay.hide(); scanFeedback.cancel()
+            lastPosition = position; stableSince = now; dwellScannedPosition = nil; scanGeneration += 1; overlay.hide(); scanFeedback.cancel()
         }
         guard appState?.screenRecordingGranted == true else { return }
         let heldModifiers = Self.hotKeyModifiers(from: NSEvent.modifierFlags)
         guard HoverInvocationPolicy.shouldTrigger(
             preferences: preferences,
-            stableDuration: Date().timeIntervalSince(stableSince),
+            stableDuration: now.timeIntervalSince(stableSince),
             dwellAlreadyScanned: dwellScannedPosition != nil,
             heldModifiers: heldModifiers,
-            elapsedSinceLastScan: Date().timeIntervalSince(lastScanAt)
+            elapsedSinceLastScan: now.timeIntervalSince(lastScanAt)
         ) else { return }
         switch preferences.mode {
         case .off:
@@ -148,6 +172,13 @@ import Foundation
         guard !isScanning, let plan = CapturePlan.around(position) else { return false }
         guard CGPreflightScreenCaptureAccess() else { appState?.screenRecordingGranted = false; return false }
         let generation = scanGeneration
+        // Capture once per accepted scan (never on the 20 Hz pointer timer). Keeping this
+        // uncached preserves the foreground window title that belongs to this invocation.
+        let foreground = ForegroundApplicationContext.capture()
+        if presentation == .temporary, !requiresStablePointer {
+            manualInspection = ManualInspectionState(anchor: position, startedAt: Date())
+            appState?.setTemporaryDismissEnabled(true)
+        }
         isScanning = true; lastScanAt = Date(); appState?.activity = "Reading near cursor…"
         if appState?.activationPreferences.scanFeedbackEnabled == true { scanFeedback.invoked(at: position) }
         if presentation == .pinned, overlay.isSticky { overlay.showPinnedStatus("Reading near pointer…") }
@@ -156,17 +187,17 @@ import Foundation
             let fragments = await ocr.recognizeFragments(plan: plan)
             let input = Self.contextInput(from: fragments)
             let tokens = TokenParser.parse(input)
-            let foreground = ForegroundApplicationContext.capture()
             let context = ResolutionContext.load()
             let history = ResolutionHistoryStore.load()
-            let resolutionPlan = EvidenceCandidatePlanner.plan(
+            let resolutionPlan = await evidencePlanner.plan(
                 input: input,
                 context: context,
                 pinned: PinnedTicketContext.load(fallback: context),
                 foreground: foreground,
                 history: history
             )
-            let anchorPairs = tokens.compactMap { token in
+            let anchorSourceOrders = Set(ScanAnchorPolicy.sourceOrders(tokens: tokens, plan: resolutionPlan))
+            let anchorPairs = tokens.filter { anchorSourceOrders.contains($0.sourceOrder) }.compactMap { token in
                 ScanFeedbackAnchor(token: token, fragments: fragments).map { (token.sourceOrder, $0) }
             }
             let anchorsBySourceOrder = anchorPairs.reduce(into: [Int: ScanFeedbackAnchor]()) { result, pair in
@@ -198,11 +229,15 @@ import Foundation
                     startedGeneration: generation,
                     currentGeneration: scanGeneration
                 ) else { return }
-                if let first = resolved.first,
-                   let anchor = anchorsBySourceOrder[first.proposal.sourceOrder] ?? selectedAnchor {
+                let resultAnchor = resolved.first.flatMap { anchorsBySourceOrder[$0.proposal.sourceOrder] ?? selectedAnchor }
+                switch ScanTerminalFeedbackPolicy.event(hasResolvedResult: !resolved.isEmpty, hasAnchor: resultAnchor != nil) {
+                case .resolved:
+                    guard let anchor = resultAnchor else { break }
                     scanFeedback.resolved(anchor: anchor)
-                } else {
+                case .noMatch:
                     scanFeedback.noMatch()
+                case .none:
+                    scanFeedback.cancel()
                 }
             }
             if presentation == .pinned {
@@ -219,7 +254,7 @@ import Foundation
             guard !overlay.isSticky,
                   (!requiresStablePointer || hypot(NSEvent.mouseLocation.x - position.x, NSEvent.mouseLocation.y - position.y) <= 4) else { return }
             if lines.isEmpty {
-                overlay.hide(); appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
+                overlay.hide(); clearManualInspection(); appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
             } else {
                 overlay.show(lines, near: position, shortcutLabel: pinShortcutLabel)
                 appState?.activity = lines.first?.title ?? "Ready"
@@ -403,8 +438,26 @@ import Foundation
         editTask?.cancel(); editTask = nil; editState.clear()
     }
     private func closePinned() {
+        clearManualInspection()
         scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
         lastPosition = NSEvent.mouseLocation; stableSince = Date(); dwellScannedPosition = nil; appState?.activity = "Ready"
+    }
+
+    private func clearManualInspection() {
+        manualInspection = nil
+        appState?.setTemporaryDismissEnabled(false)
+    }
+
+    private func dismissManualInspection() {
+        clearManualInspection()
+        scanGeneration += 1
+        pendingManualScan = nil
+        overlay.hide()
+        scanFeedback.cancel()
+        appState?.activity = "Ready"
+        lastPosition = NSEvent.mouseLocation
+        stableSince = Date()
+        dwellScannedPosition = nil
     }
 
     private static func projectAndNumber(from key: String) -> (String, Int)? {

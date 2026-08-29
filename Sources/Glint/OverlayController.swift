@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 
 enum OverlayMetrics {
+    static let pinnedReservedChromeHeight: CGFloat = 76
+
+    static func pinnedBodyHeight(totalHeight: CGFloat) -> CGFloat {
+        max(0, totalHeight - pinnedReservedChromeHeight)
+    }
+
     static func preferredHeight(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences) -> CGFloat {
         guard !lines.isEmpty else { return sticky ? 250 : 190 }
         let primaryBase: CGFloat
@@ -113,18 +119,18 @@ struct OverlayContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if sticky { pinnedHeader }
-            if let line = selectedLine {
-                PrimaryResultCard(line: line, preferences: preferences)
+            if sticky {
+                pinnedHeader
+                ScrollView(.vertical, showsIndicators: false) {
+                    resultBody
+                }
+                .scrollDisabled(true)
+                .frame(height: OverlayMetrics.pinnedBodyHeight(totalHeight: constrainedSize.height))
+                .clipped()
+                pinnedFooter.fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: 12) {
-                    ProgressView().controlSize(.small)
-                    Text(statusText ?? "Ready for a ticket number").font(.headline)
-                    Text("Type a number, paste a ticket key, or point at one and use Inspect.").font(.callout).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, minHeight: 160)
+                resultBody
             }
-            alternativeResults
-            if sticky { pinnedFooter }
         }
         .padding(10)
         .frame(width: constrainedSize.width, height: constrainedSize.height, alignment: .top)
@@ -134,6 +140,19 @@ struct OverlayContent: View {
 
     private var selectedLine: GlintLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
     private var alternativeIndices: [Int] { preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex) }
+
+    @ViewBuilder private var resultBody: some View {
+        if let line = selectedLine {
+            PrimaryResultCard(line: line, preferences: preferences)
+        } else {
+            VStack(spacing: 12) {
+                ProgressView().controlSize(.small)
+                Text(statusText ?? "Ready for a ticket number").font(.headline)
+                Text("Type a number, paste a ticket key, or point at one and use Inspect.").font(.callout).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, minHeight: 160)
+        }
+        alternativeResults
+    }
 
     private var pinnedHeader: some View {
         HStack(spacing: 8) {
@@ -372,7 +391,8 @@ struct AppearanceCardPreview: View {
     }
 
     private func renderTemporary() {
-        let visible = screen(containing: anchorMouse).visibleFrame
+        guard let targetScreen = screen(containing: anchorMouse) else { hide(); return }
+        let visible = targetScreen.visibleFrame
         let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, visibleFrame: visible)
         var origin = CGPoint(x: anchorMouse.x + 18, y: anchorMouse.y - size.height - 18)
         if origin.x + size.width > visible.maxX { origin.x = anchorMouse.x - size.width - 18 }
@@ -384,7 +404,9 @@ struct AppearanceCardPreview: View {
 
     private func renderPinned(useSavedPosition: Bool) {
         let shouldRemainFocused = panel.isKeyWindow
-        let targetScreen = useSavedPosition ? screen(containing: anchorMouse) : (panel.screen ?? screen(containing: NSEvent.mouseLocation))
+        guard let targetScreen = useSavedPosition ? screen(containing: anchorMouse) : (panel.screen ?? screen(containing: NSEvent.mouseLocation)) else {
+            hide(); return
+        }
         let visible = targetScreen.visibleFrame
         let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, visibleFrame: visible)
         let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : PanelPlacement.clamped(origin: panel.frame.origin, size: size, visibleFrame: visible)
@@ -397,7 +419,9 @@ struct AppearanceCardPreview: View {
         NSHostingView(rootView: OverlayContent(lines: displayedLines, selectedIndex: selectedIndex, sticky: isSticky, shortcutLabel: shortcutLabel, statusText: statusText, inputText: inputText, projectPreview: projectPreview, preferences: presentationPreferences, constrainedSize: size))
     }
 
-    private func screen(containing point: CGPoint) -> NSScreen { NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens[0] }
+    private func screen(containing point: CGPoint) -> NSScreen? {
+        NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens.first
+    }
     private func screenID(_ screen: NSScreen) -> String { String((screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0) }
     private func savedOrigin(for screen: NSScreen, size: CGSize) -> CGPoint {
         let key = "pinnedOrigin.\(screenID(screen))"

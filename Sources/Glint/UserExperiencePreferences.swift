@@ -128,7 +128,6 @@ struct ActivationPreferences: Equatable {
         defaults.set(responsiveness.rawValue, forKey: prefix + "responsiveness")
         defaults.set(scanFeedbackEnabled, forKey: prefix + "scanFeedbackEnabled")
         defaults.set(legacyTriggerMode.rawValue, forKey: "triggerMode")
-        NotificationCenter.default.post(name: .glintActivationPreferencesDidChange, object: nil)
     }
 }
 
@@ -217,6 +216,5 @@ struct PresentationPreferences: Equatable {
 }
 
 extension Notification.Name {
-    static let glintActivationPreferencesDidChange = Notification.Name("glint.activationPreferencesDidChange")
     static let glintPresentationPreferencesDidChange = Notification.Name("glint.presentationPreferencesDidChange")
 }

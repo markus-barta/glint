@@ -2,14 +2,14 @@ import Foundation
 
 /// Geometry is deliberately expressed in normalized capture coordinates so the resolver does
 /// not depend on Vision, AppKit, or the scan overlay's concrete observation type.
-struct OCRNormalizedRegion: Hashable {
+struct OCRNormalizedRegion: Hashable, Sendable {
     let x: Double
     let y: Double
     let width: Double
     let height: Double
 }
 
-struct OCRContextFragment: Hashable {
+struct OCRContextFragment: Hashable, Sendable {
     let text: String
     let lineIndex: Int
     let order: Int
@@ -31,7 +31,7 @@ struct OCRContextFragment: Hashable {
     }
 }
 
-struct OCRContextInput: Hashable {
+struct OCRContextInput: Hashable, Sendable {
     let fragments: [OCRContextFragment]
 
     init(fragments: [OCRContextFragment]) { self.fragments = fragments }
@@ -43,8 +43,8 @@ struct OCRContextInput: Hashable {
     }
 }
 
-struct NearbyToken: Hashable {
-    enum Kind: Hashable {
+struct NearbyToken: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
         case issueKey(project: String, number: Int)
         case hashNumber(Int)
         case bareNumber(Int)
@@ -81,10 +81,13 @@ struct NearbyToken: Hashable {
 }
 
 enum TokenParser {
-    private static let keyPattern = #"\b([A-Z][A-Z0-9]{1,11})-([0-9]+)\b"#
-    private static let hashPattern = #"(?<![A-Z0-9])#([0-9]+)\b"#
-    private static let versionPattern = #"\b[0-9]+\.[0-9]+(?:\.[0-9]+)+\b"#
-    private static let barePattern = #"(?<![A-Z0-9#.-])\b[0-9]+\b(?![.-])"#
+    private static let keyRegex = try! NSRegularExpression(
+        pattern: #"\b([A-Z][A-Z0-9]{1,11})-([0-9]+)\b"#,
+        options: [.caseInsensitive]
+    )
+    private static let hashRegex = try! NSRegularExpression(pattern: #"(?<![A-Z0-9])#([0-9]+)\b"#)
+    private static let versionRegex = try! NSRegularExpression(pattern: #"\b[0-9]+\.[0-9]+(?:\.[0-9]+)+\b"#)
+    private static let bareRegex = try! NSRegularExpression(pattern: #"(?<![A-Z0-9#.-])\b[0-9]+\b(?![.-])"#)
 
     static func parse(_ strings: [String]) -> [NearbyToken] {
         parse(OCRContextInput(lines: strings))
@@ -97,11 +100,9 @@ enum TokenParser {
             let ns = string as NSString
             var occupied: [NSRange] = []
             func add(
-                _ pattern: String,
-                options: NSRegularExpression.Options = [],
+                _ regex: NSRegularExpression,
                 _ make: (NSTextCheckingResult, String) -> NearbyToken.Kind?
             ) {
-                guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
                 for match in regex.matches(in: string, range: NSRange(location: 0, length: ns.length)) {
                     guard !occupied.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
                     let raw = ns.substring(with: match.range)
@@ -119,13 +120,13 @@ enum TokenParser {
                     occupied.append(match.range)
                 }
             }
-            add(keyPattern, options: [.caseInsensitive]) { match, _ in
+            add(keyRegex) { match, _ in
                 guard let n = Int(ns.substring(with: match.range(at: 2))) else { return nil }
                 return .issueKey(project: ns.substring(with: match.range(at: 1)).uppercased(), number: n)
             }
-            add(hashPattern) { match, _ in Int(ns.substring(with: match.range(at: 1))).map(NearbyToken.Kind.hashNumber) }
-            add(versionPattern) { _, _ in .version }
-            add(barePattern) { _, raw in Int(raw).map(NearbyToken.Kind.bareNumber) }
+            add(hashRegex) { match, _ in Int(ns.substring(with: match.range(at: 1))).map(NearbyToken.Kind.hashNumber) }
+            add(versionRegex) { _, _ in .version }
+            add(bareRegex) { _, raw in Int(raw).map(NearbyToken.Kind.bareNumber) }
         }
         var seen = Set<String>()
         return result.sorted { $0.sourceOrder < $1.sourceOrder }

@@ -1,6 +1,6 @@
 import Foundation
 
-enum Tracker: String, Codable, CaseIterable {
+enum Tracker: String, Codable, CaseIterable, Sendable {
     case ppm
     case pma
     var other: Tracker { self == .ppm ? .pma : .ppm }
@@ -85,7 +85,7 @@ struct GlintPreferences: Equatable {
     }
 }
 
-struct GlintLine: Codable, Hashable, Identifiable {
+struct GlintLine: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let key: String
     let state: String
@@ -117,7 +117,7 @@ enum HoverResultPolicy {
     }
 }
 
-struct ResolutionContext: Equatable {
+struct ResolutionContext: Equatable, Sendable {
     var lastSeenTracker: Tracker
     var ppmProject: String
     var pmaProject: String
@@ -128,6 +128,12 @@ struct ResolutionContext: Equatable {
             ppmProject: defaults.string(forKey: "lastPPMProject") ?? "PAI",
             pmaProject: defaults.string(forKey: "lastPMAProject") ?? "START"
         )
+    }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: "lastSeenTracker")
+        defaults.removeObject(forKey: "lastPPMProject")
+        defaults.removeObject(forKey: "lastPMAProject")
     }
 
     func project(for tracker: Tracker) -> String { tracker == .ppm ? ppmProject : pmaProject }
@@ -141,7 +147,7 @@ struct ResolutionContext: Equatable {
     }
 }
 
-struct PinnedTicketContext: Equatable {
+struct PinnedTicketContext: Equatable, Sendable {
     var project: String
     var number: Int?
 
@@ -159,7 +165,7 @@ struct PinnedTicketContext: Equatable {
     }
 }
 
-enum CandidateSpec: Hashable {
+enum CandidateSpec: Hashable, Sendable {
     case issue(tracker: Tracker, key: String)
     case pullRequest(number: Int, repo: String)
     var cacheKey: String {

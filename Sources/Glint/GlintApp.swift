@@ -93,6 +93,7 @@ private enum GlintBrand {
             switch command {
             case .inspect: self.coordinator.performInspectCommand()
             case .pin: self.coordinator.performPinCommand()
+            case .dismiss: self.coordinator.performDismissCommand()
             }
         }
         configureHotKeys()
@@ -107,7 +108,12 @@ private enum GlintBrand {
 #endif
     }
 
-    func clearCache() { coordinator.clearCache(); activity = "Cache cleared" }
+    func clearCache() {
+        coordinator.clearCache()
+        LearnedContextStore.clear()
+        activity = "Titles and learned context cleared"
+    }
+    func setTemporaryDismissEnabled(_ enabled: Bool) { hotKeyMonitor.setTemporaryDismissEnabled(enabled) }
     func requestScreenRecording() {
         screenRecordingGranted = CGRequestScreenCaptureAccess() || CGPreflightScreenCaptureAccess()
         if !screenRecordingGranted,
@@ -248,7 +254,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         backdrop.orderFrontRegardless()
         probeScanBackdrop = backdrop
 
-        let centerY = frame.minY + 50
+        // The debug anchors deliberately sit on the visible ticket glyphs so the
+        // probe exercises the same spatial relationship as live OCR feedback.
+        let centerY = frame.minY + 68
         let invoked = ScanFeedbackController(allowsCapture: true)
         invoked.showDebugInvoked(at: CGPoint(x: frame.minX + frame.width / 6, y: centerY))
 
@@ -281,13 +289,12 @@ private struct ScanFeedbackProbeBackdrop: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                phase("1", "INVOKED", "Immediate acknowledgement")
+                phase("1", "INVOKED", "Immediate acknowledgement", ticket: "PAI-843")
                 Divider().padding(.vertical, 22)
-                phase("2", "RECOGNIZED", "Candidate anchors")
+                phase("2", "RECOGNIZED", "Candidate anchors", ticket: "GLINT-19     #184")
                 Divider().padding(.vertical, 22)
-                phase("3", "RESOLVED", "Confirmed ticket")
+                phase("3", "RESOLVED", "Confirmed ticket", ticket: "GLINT-19")
             }
-            Spacer(minLength: 0)
             Text("DEBUG VISUAL PROBE · release scan feedback remains capture-excluded")
                 .font(.caption2.monospaced().weight(.medium))
                 .foregroundStyle(.tertiary)
@@ -298,7 +305,7 @@ private struct ScanFeedbackProbeBackdrop: View {
         .padding(8)
     }
 
-    private func phase(_ number: String, _ title: String, _ subtitle: String) -> some View {
+    private func phase(_ number: String, _ title: String, _ subtitle: String, ticket: String) -> some View {
         VStack(spacing: 4) {
             HStack(spacing: 7) {
                 Text(number)
@@ -308,8 +315,14 @@ private struct ScanFeedbackProbeBackdrop: View {
                 Text(title).font(.caption.weight(.bold)).tracking(0.6)
             }
             Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Text(ticket)
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.primary)
+                .padding(.bottom, 29)
         }
         .frame(maxWidth: .infinity)
+        .frame(maxHeight: .infinity)
         .padding(.top, 20)
     }
 }
@@ -697,11 +710,11 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "clock.arrow.circlepath").font(.title3).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Resolved title cache").fontWeight(.medium)
-                        Text("Clear locally cached ticket titles if they look stale.").font(.caption).foregroundStyle(.secondary)
+                        Text("Resolved titles & learned context").fontWeight(.medium)
+                        Text("GLINT caches ticket titles and remembers confirmed project or repository choices by the foreground app’s bundle identifier.").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(cacheCleared ? "Cleared" : "Clear Cache") {
+                    Button(cacheCleared ? "Forgotten" : "Forget Titles & Context") {
                         state.clearCache()
                         cacheCleared = true
                         Task {

@@ -147,6 +147,17 @@ enum SelfTests {
             fputs("self-test failed: activation preference persistence\n", stderr)
             exit(1)
         }
+        for (legacy, expected) in [("dwell", HoverActivationMode.dwell), ("option", .hold), ("always", .continuous)] {
+            let migrationSuite = "GlintSelfTests.Migration.\(legacy).\(UUID().uuidString)"
+            guard let migrationDefaults = UserDefaults(suiteName: migrationSuite) else { exit(1) }
+            migrationDefaults.set(legacy, forKey: "triggerMode")
+            let migrated = ActivationPreferences.load(defaults: migrationDefaults)
+            guard migrated.mode == expected,
+                  migrationDefaults.string(forKey: "activation.mode") == expected.rawValue else {
+                fputs("self-test failed: legacy activation migration \(legacy)\n", stderr); exit(1)
+            }
+            migrationDefaults.removePersistentDomain(forName: migrationSuite)
+        }
         guard !HoverInvocationPolicy.shouldTrigger(
             preferences: .init(mode: .off, dwellMilliseconds: 300, holdModifiers: [.option], responsiveness: .balanced, scanFeedbackEnabled: true),
             stableDuration: 10, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 10
@@ -186,12 +197,34 @@ enum SelfTests {
         guard !HoverInvocationPolicy.shouldTrigger(
             preferences: continuousActivation,
             stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.349
-        ), HoverInvocationPolicy.shouldTrigger(
+        ), !HoverInvocationPolicy.shouldTrigger(
             preferences: continuousActivation,
             stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.35
+        ), HoverInvocationPolicy.shouldTrigger(
+            preferences: continuousActivation,
+            stableDuration: HoverInvocationPolicy.continuousMovementSettleDuration,
+            dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.35
         ) else {
             fputs("self-test failed: continuous responsiveness invocation policy\n", stderr)
             exit(1)
+        }
+        guard !ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 35, elapsed: 7.9),
+              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 37, elapsed: 1),
+              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 8),
+              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 0, escapePressed: true) else {
+            fputs("self-test failed: manual inspection lifetime policy\n", stderr); exit(1)
+        }
+        guard ResolutionLookupPolicy.initialCount(total: 16) == 4,
+              ResolutionLookupPolicy.initialCount(total: 2) == 2,
+              ResolutionLookupPolicy.shouldLaunchNext(launched: 4, total: 16, resolvedCount: 2, maximumResults: 12),
+              !ResolutionLookupPolicy.shouldLaunchNext(launched: 4, total: 16, resolvedCount: 12, maximumResults: 12),
+              !ResolutionLookupPolicy.shouldLaunchNext(launched: 16, total: 16, resolvedCount: 0, maximumResults: 12) else {
+            fputs("self-test failed: bounded lookup scheduling policy\n", stderr); exit(1)
+        }
+        guard ScanTerminalFeedbackPolicy.event(hasResolvedResult: false, hasAnchor: false) == .noMatch,
+              ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: true) == .resolved,
+              ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: false) == .none else {
+            fputs("self-test failed: terminal scan feedback policy\n", stderr); exit(1)
         }
         let presentation = PresentationPreferences(
             alternativePreviews: 5,
@@ -225,6 +258,28 @@ enum SelfTests {
               OverlayMetrics.preferredHeight(lines: previewLines, sticky: true, preferences: noAlternatives) < previewHeight else {
             fputs("self-test failed: bounded XL appearance preview\n", stderr)
             exit(1)
+        }
+        let constrainedOverlay = OverlayMetrics.size(
+            lines: previewLines,
+            sticky: true,
+            preferences: presentation,
+            visibleFrame: CGRect(x: 0, y: 0, width: 900, height: 330)
+        )
+        let pinnedBody = OverlayMetrics.pinnedBodyHeight(totalHeight: constrainedOverlay.height)
+        guard pinnedBody > 0,
+              pinnedBody + OverlayMetrics.pinnedReservedChromeHeight <= constrainedOverlay.height + 0.001 else {
+            fputs("self-test failed: footer-safe max-stress pinned layout\n", stderr); exit(1)
+        }
+        let negativeDisplay = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+        let negativeScreen = CGRect(x: -1920, y: -120, width: 1920, height: 1080)
+        let syntheticCapture = CapturePlan(
+            rect: CGRect(x: -1820, y: 100, width: 200, height: 50),
+            displayBounds: negativeDisplay,
+            screenFrame: negativeScreen
+        )
+        guard syntheticCapture.appKitRect(forQuartz: syntheticCapture.rect) == CGRect(x: -1820, y: 810, width: 200, height: 50),
+              syntheticCapture.quartzRect(forVisionNormalized: CGRect(x: 0.25, y: 0.2, width: 0.5, height: 0.4)) == CGRect(x: -1770, y: 120, width: 100, height: 20) else {
+            fputs("self-test failed: CapturePlan coordinate conversion\n", stderr); exit(1)
         }
         let feedbackScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         guard ScanFeedbackGeometry.panelFrame(
@@ -262,6 +317,44 @@ enum SelfTests {
               ScanFeedbackAnchor(token: anchorToken, fragments: [fragment])?.bounds == anchorBounds else {
             fputs("self-test failed: token-anchored scan feedback\n", stderr)
             exit(1)
+        }
+        let denseInput = OCRContextInput(lines: [
+            "Release 0.3.0 build 2026 08 29 GLINT-19 #184 PAI-843 999 1000"
+        ])
+        let denseTokens = TokenParser.parse(denseInput)
+        let densePlan = EvidenceCandidatePlanner.plan(input: denseInput, context: context)
+        let denseOrders = ScanAnchorPolicy.sourceOrders(tokens: denseTokens, plan: densePlan)
+        let versionOrders = Set(denseTokens.compactMap { token -> Int? in
+            if case .version = token.kind { return token.sourceOrder }
+            return nil
+        })
+        guard denseOrders.count <= ScanAnchorPolicy.maximumAnchors,
+              denseOrders.allSatisfy({ !versionOrders.contains($0) }),
+              denseOrders.allSatisfy({ order in densePlan.proposals.contains(where: { $0.sourceOrder == order }) }) else {
+            fputs("self-test failed: proposal-backed capped scan anchors\n", stderr); exit(1)
+        }
+        let historyProposal = CandidateProposal(
+            spec: .issue(tracker: .ppm, key: "GLINT-24"), score: 100,
+            reasons: [.init(code: "test", label: "test", weight: 100, strength: .strong)],
+            sourceOrder: 0, inferredProject: "GLINT", learningEligibility: .userConfirmation
+        )
+        ResolutionHistoryStore.record(
+            .init(proposal: historyProposal, basis: .userConfirmed),
+            bundleIdentifier: "at.example.editor", defaults: defaults,
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+        var learnedContext = ResolutionContext.load(defaults: defaults)
+        learnedContext.saw(project: "GLINT", on: .ppm, defaults: defaults)
+        guard ResolutionHistoryStore.load(defaults: defaults).entries.count == 1,
+              defaults.string(forKey: "lastPPMProject") == "GLINT" else {
+            fputs("self-test failed: learned context round-trip\n", stderr); exit(1)
+        }
+        LearnedContextStore.clear(defaults: defaults)
+        guard ResolutionHistoryStore.load(defaults: defaults).entries.isEmpty,
+              defaults.object(forKey: "lastSeenTracker") == nil,
+              defaults.object(forKey: "lastPPMProject") == nil,
+              defaults.object(forKey: "lastPMAProject") == nil else {
+            fputs("self-test failed: learned context clear\n", stderr); exit(1)
         }
         let resolverFailures = ResolverDeterministicChecks.run()
         guard resolverFailures.isEmpty else {
