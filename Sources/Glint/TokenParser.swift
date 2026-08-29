@@ -1,5 +1,48 @@
 import Foundation
 
+/// Geometry is deliberately expressed in normalized capture coordinates so the resolver does
+/// not depend on Vision, AppKit, or the scan overlay's concrete observation type.
+struct OCRNormalizedRegion: Hashable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
+struct OCRContextFragment: Hashable {
+    let text: String
+    let lineIndex: Int
+    let order: Int
+    let confidence: Double?
+    let region: OCRNormalizedRegion?
+
+    init(
+        text: String,
+        lineIndex: Int,
+        order: Int,
+        confidence: Double? = nil,
+        region: OCRNormalizedRegion? = nil
+    ) {
+        self.text = text
+        self.lineIndex = lineIndex
+        self.order = order
+        self.confidence = confidence
+        self.region = region
+    }
+}
+
+struct OCRContextInput: Hashable {
+    let fragments: [OCRContextFragment]
+
+    init(fragments: [OCRContextFragment]) { self.fragments = fragments }
+
+    init(lines: [String]) {
+        fragments = lines.enumerated().map {
+            OCRContextFragment(text: $0.element, lineIndex: $0.offset, order: $0.offset)
+        }
+    }
+}
+
 struct NearbyToken: Hashable {
     enum Kind: Hashable {
         case issueKey(project: String, number: Int)
@@ -10,6 +53,31 @@ struct NearbyToken: Hashable {
     let raw: String
     let kind: Kind
     let sourceOrder: Int
+    let fragmentIndex: Int
+    let lineIndex: Int
+    let characterOffset: Int
+    let confidence: Double?
+    let region: OCRNormalizedRegion?
+
+    init(
+        raw: String,
+        kind: Kind,
+        sourceOrder: Int,
+        fragmentIndex: Int = 0,
+        lineIndex: Int = 0,
+        characterOffset: Int = 0,
+        confidence: Double? = nil,
+        region: OCRNormalizedRegion? = nil
+    ) {
+        self.raw = raw
+        self.kind = kind
+        self.sourceOrder = sourceOrder
+        self.fragmentIndex = fragmentIndex
+        self.lineIndex = lineIndex
+        self.characterOffset = characterOffset
+        self.confidence = confidence
+        self.region = region
+    }
 }
 
 enum TokenParser {
@@ -19,12 +87,21 @@ enum TokenParser {
     private static let barePattern = #"(?<![A-Z0-9#.-])\b[0-9]+\b(?![.-])"#
 
     static func parse(_ strings: [String]) -> [NearbyToken] {
+        parse(OCRContextInput(lines: strings))
+    }
+
+    static func parse(_ input: OCRContextInput) -> [NearbyToken] {
         var result: [NearbyToken] = []
-        for (stringIndex, string) in strings.enumerated() {
+        for (fragmentIndex, fragment) in input.fragments.enumerated() {
+            let string = fragment.text
             let ns = string as NSString
             var occupied: [NSRange] = []
-            func add(_ pattern: String, _ make: (NSTextCheckingResult, String) -> NearbyToken.Kind?) {
-                guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+            func add(
+                _ pattern: String,
+                options: NSRegularExpression.Options = [],
+                _ make: (NSTextCheckingResult, String) -> NearbyToken.Kind?
+            ) {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
                 for match in regex.matches(in: string, range: NSRange(location: 0, length: ns.length)) {
                     guard !occupied.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
                     let raw = ns.substring(with: match.range)
@@ -32,14 +109,19 @@ enum TokenParser {
                     result.append(NearbyToken(
                         raw: raw,
                         kind: kind,
-                        sourceOrder: stringIndex * 1_000_000 + match.range.location
+                        sourceOrder: fragment.order * 1_000_000 + match.range.location,
+                        fragmentIndex: fragmentIndex,
+                        lineIndex: fragment.lineIndex,
+                        characterOffset: match.range.location,
+                        confidence: fragment.confidence,
+                        region: fragment.region
                     ))
                     occupied.append(match.range)
                 }
             }
-            add(keyPattern) { match, _ in
+            add(keyPattern, options: [.caseInsensitive]) { match, _ in
                 guard let n = Int(ns.substring(with: match.range(at: 2))) else { return nil }
-                return .issueKey(project: ns.substring(with: match.range(at: 1)), number: n)
+                return .issueKey(project: ns.substring(with: match.range(at: 1)).uppercased(), number: n)
             }
             add(hashPattern) { match, _ in Int(ns.substring(with: match.range(at: 1))).map(NearbyToken.Kind.hashNumber) }
             add(versionPattern) { _, _ in .version }
@@ -47,7 +129,7 @@ enum TokenParser {
         }
         var seen = Set<String>()
         return result.sorted { $0.sourceOrder < $1.sourceOrder }
-            .filter { seen.insert("\($0.kind):\($0.raw)").inserted }
+            .filter { seen.insert("\($0.kind):\($0.raw):\($0.fragmentIndex):\($0.characterOffset)").inserted }
     }
 }
 
@@ -87,6 +169,7 @@ enum CandidatePlanner {
 
     static func repo(for project: String) -> String? {
         switch project {
+        case "GLINT": return "markus-barta/glint"
         case "PAI": return "inspr-at/paimos"
         case "HAUSV": return "inspr-at/hausv-org"
         case "PHAROS": return "inspr-at/pharos"

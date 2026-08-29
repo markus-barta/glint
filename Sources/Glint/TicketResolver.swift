@@ -22,6 +22,11 @@ private struct PullRequest: Decodable {
 }
 private struct CacheEntry: Codable { let line: GlintLine?; let savedAt: Date }
 
+struct ResolvedCandidate: Hashable {
+    let proposal: CandidateProposal
+    let line: GlintLine
+}
+
 actor TicketResolver {
     private var cache: [String: CacheEntry] = [:]
     private let defaultsKey = "resolutionCacheV1"
@@ -44,6 +49,31 @@ actor TicketResolver {
         cache[spec.cacheKey] = CacheEntry(line: line, savedAt: Date())
         persist()
         return line
+    }
+
+    /// Resolves the bounded evidence plan in parallel. Misses never enter the returned array,
+    /// and lookup completion order cannot affect presentation order.
+    func resolve(_ plan: ResolutionPlan) async -> [ResolvedCandidate] {
+        let bounded = Array(plan.proposals.prefix(ResolutionPlan.maximumCandidates))
+        guard !bounded.isEmpty else { return [] }
+        let resolved = await withTaskGroup(of: (Int, GlintLine?).self, returning: [(Int, GlintLine?)].self) { group in
+            for (index, proposal) in bounded.enumerated() {
+                group.addTask { [weak self] in
+                    guard let self else { return (index, nil) }
+                    return (index, await self.resolve(proposal.spec))
+                }
+            }
+            var values: [(Int, GlintLine?)] = []
+            for await value in group { values.append(value) }
+            return values
+        }
+        var seen = Set<String>()
+        return resolved
+            .sorted { $0.0 < $1.0 }
+            .compactMap { index, line -> ResolvedCandidate? in
+                guard let line, seen.insert(line.id).inserted else { return nil }
+                return ResolvedCandidate(proposal: bounded[index], line: line)
+            }
     }
 
     func clearCache() { cache.removeAll(); UserDefaults.standard.removeObject(forKey: defaultsKey) }
