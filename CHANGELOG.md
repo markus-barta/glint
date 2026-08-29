@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-29
+
+- Publish GLINT under GNU AGPL v3.0 and refresh its public GitHub presentation.
+
 ## [0.3.0] - 2026-08-29
 
 - Add anchored scan feedback, evidence-ranked ticket resolution, unified activation controls, and customizable ticket cards.

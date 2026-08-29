@@ -162,7 +162,12 @@ private enum GlintBrand {
 
 @MainActor final class SettingsWindowController: NSWindowController {
     init(state: AppState) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 650), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        #if DEBUG
+        let captureHeight: CGFloat = CommandLine.arguments.contains("--settings-tall-capture-probe") ? 780 : 650
+        #else
+        let captureHeight: CGFloat = 650
+        #endif
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: captureHeight), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "GLINT Settings"
         window.titlebarSeparatorStyle = .line
         window.minSize = NSSize(width: 760, height: 580)
@@ -188,7 +193,7 @@ private enum GlintBrand {
 
 @MainActor final class AboutWindowController: NSWindowController {
     init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 360), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 390), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "About GLINT"
         window.isReleasedWhenClosed = false
         let hostingView = NSHostingView(rootView: AboutView())
@@ -294,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let recognized = ScanFeedbackController(allowsCapture: true)
         let recognizedPrimary = ScanFeedbackAnchor(
             literal: "GLINT-19",
-            bounds: CGRect(x: frame.midX - 94, y: centerY - 10, width: 82, height: 22)
+            bounds: CGRect(x: frame.midX - 94, y: centerY - 10, width: 94, height: 22)
         )
         let recognizedAlternate = ScanFeedbackAnchor(
             literal: "#184",
@@ -956,7 +961,14 @@ private struct AboutView: View {
             Text("Version \(GlintBrand.version)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Text("Reads a tiny on-screen region locally and resolves real PPM, PMA, and GitHub records—never invented placeholders.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 330)
-        }.padding(28).frame(width: 420, height: 360)
+            Divider().frame(width: 250)
+            HStack(spacing: 4) {
+                Text("Open source under")
+                Link("GNU AGPL v3.0", destination: URL(string: "https://github.com/markus-barta/glint/blob/main/LICENSE")!)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }.padding(28).frame(width: 420, height: 390)
     }
 }
 

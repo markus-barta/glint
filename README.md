@@ -1,85 +1,107 @@
 <p align="center">
-  <img src="Sources/Glint/Resources/Brand/glint-app-icon-1024.png" width="144" alt="GLINT app icon">
-</p>
-
-<h1 align="center">GLINT</h1>
-
-<p align="center">
-  <strong>Ticket context, right where you are looking.</strong><br>
-  A private macOS menu-bar utility that turns nearby issue references into useful, navigable cards.
+  <img src="docs/screenshots/hero-0.3.1.png" alt="GLINT — point at a ticket and know what matters" width="100%">
 </p>
 
 <p align="center">
-  macOS 13+ &nbsp;·&nbsp; Swift 5.10 &nbsp;·&nbsp; Local OCR &nbsp;·&nbsp; Read-only lookup
-</p>
-
----
-
-GLINT watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your local Paimos and GitHub sessions. The strongest result gets a detailed card—key, state, title, metadata, and description excerpt—while the next likely matches remain visible as compact rows before you scroll to them.
-
-No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to a model.
-
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshots/pinned-card-0.3.0.png" width="760" alt="GLINT pinned ticket card with a prominent primary result and visible scroll alternatives">
+  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.1-0A84FF?style=flat-square" alt="Latest release 0.3.1"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
+  <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
+  <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
+  <img src="https://img.shields.io/badge/lookups-read--only-22C55E?style=flat-square" alt="Read-only lookups">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-0A84FF?style=flat-square" alt="GNU AGPL v3.0"></a>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings-scanning-0.3.0.png" width="720" alt="GLINT Scanning settings with a one-shot Inspect shortcut and optional hover activation">
+  <strong>Ticket context, right where you point.</strong><br>
+  GLINT is a private macOS menu-bar utility that turns nearby issue references into useful, navigable cards.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings-appearance-0.3.0.png" width="720" alt="GLINT Appearance settings with a live ticket-card preview and visual controls">
+  <a href="https://github.com/markus-barta/glint/releases/latest"><strong>Download the latest release</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#build-from-source">Build from source</a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">Release history</a>
 </p>
+
+## Look once. Keep moving.
+
+GLINT watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
 
 <p align="center">
-  <img src="docs/screenshots/scan-feedback-0.3.0.png" width="760" alt="GLINT scan feedback states: invoked, recognized, and resolved">
+  <img src="docs/screenshots/workflow-0.3.1.png" alt="GLINT scans a ticket reference at the pointer and opens a rich card with ranked alternatives" width="100%">
 </p>
 
-## How it feels
+| Invoke anywhere | Keep context nearby | Navigate without friction |
+| --- | --- | --- |
+| **Inspect** performs exactly one scan beneath the pointer. Optional hover activation can wait for a dwell, require chosen modifiers, or run continuously. | **Pin** turns the result into a movable card with a remembered screen position. Use the handle to place it where it belongs. | Scroll through results, Shift-scroll through projects, type a number to jump tickets, or fuzzy-type a project—even with a typo. |
 
-GLINT has two configurable global commands:
+The small scan cue shows where GLINT is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
 
-- **Inspect** (default `⌥Space`) scans at the pointer and opens a temporary card.
-- **Pin / direct open** (default `⇧⌥Space`) opens GLINT pinned from anywhere, pins a temporary card, or closes an already pinned card.
+## Your shortcuts. Your card.
 
-Both shortcuts use native recorder controls in Settings, reject unsafe plain-letter globals, detect conflicts, and can be cleared or reset.
+Activation and presentation are independent on purpose. Record any safe global shortcut, choose exactly when pointer-only scanning should happen, and tune how much information the card shows. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
 
-The Inspect command always performs exactly one scan. Optional hands-free activation can be turned off, delayed by a configurable dwell, limited to any chosen modifier-key combination, or run continuously at a calm, balanced, or fast cadence. A small capture-excluded cue marks the pointer immediately, outlines recognized IDs, and confirms the selected ticket; Reduce Motion replaces animated transitions with restrained fades.
+<p align="center">
+  <img src="docs/screenshots/settings-showcase-0.3.1.png" alt="GLINT activation and card appearance settings" width="100%">
+</p>
 
-When pinned, GLINT becomes a compact ticket navigator:
+GLINT can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
 
-- Drag its top handle to a fixed place on the current display; GLINT remembers and safely clamps that position when displays change.
-- Scroll over the panel to move through the resolved tickets. Hold Shift while scrolling to try the same number in another project.
-- Focus the panel and type digits to jump to that ticket number while keeping the project.
-- Type letters to switch projects with typo-tolerant fuzzy matching; the best guess is always previewed, then applied after a brief pause or with Return.
-- Paste full keys such as `PHAROS-203`, `#203`, or bare numbers directly. Backspace edits the active input; Escape first clears it, then closes.
+## Smarter resolution, fewer wrong guesses
 
-Typing is captured only while the pinned panel is focused. Ordinary scrolling elsewhere on the Mac is never intercepted.
+Explicit evidence wins. GLINT combines the shape and position of nearby OCR text with GitHub URLs, the foreground app and window, the pinned card, and short-lived per-app history. It resolves strong candidates first, tries weaker fallbacks only when needed, and never fabricates a “maybe” result.
 
-Appearance settings update a local sample card immediately. You can show zero to five upcoming scroll destinations and choose the card's text size, width, content density, and system or solid surface.
+- Known PPM projects resolve through the `ppm` Paimos instance; `START` resolves through `pma`.
+- Explicit GitHub pull-request URLs route directly to their repository.
+- Bare numbers use nearby project text and foreground context before trying cautious fallbacks.
+- GitHub lookups are limited to configured repositories or an explicit `github.com` URL. Ordinary OCR paths never become network targets.
+- Only high-confidence or directly confirmed context is learned; weak guesses are not.
 
-## Resolution model
+## Private by construction
 
-Explicit keys take the narrowest route. Known PPM projects (`GLINT`, `HAUSV`, `INSPR`, `JANUS`, `PAI`, and `PHAROS`) resolve through the `ppm` Paimos instance; `START` resolves through `pma`. Unknown project keys can try both. For ambiguous numbers, GLINT ranks nearby project names, explicit GitHub URLs, foreground app/window context, the pinned card, and short-lived per-app history. Explicit evidence always outranks weak context, and weak guesses are never learned automatically.
+The screen crop and Apple Vision OCR stay in the GLINT process. No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to an AI model, and there is no telemetry.
 
-GitHub lookups are restricted to configured project repositories or a repository extracted from an explicit `github.com` URL. Ordinary slash text, paths, and dates seen by OCR never become network lookup targets.
+GLINT launches only local, read-only commands:
 
-Failures stay invisible: GLINT never invents a synthetic “maybe” row. Successful results are cached briefly for responsiveness, with misses cached for only one minute.
+```text
+paimos --instance <ppm|pma> --json issue get <key>
+gh pr view … --json …
+```
 
-## Privacy and trust boundary
+Those tools may contact their configured services using your existing credentials. GLINT never writes to either service. Scan-feedback panels opt out of screen capture, and the only learned hint is a bounded, decaying project association keyed by application bundle identifier. Settings can clear it together with cached titles.
 
-The screen crop and Apple Vision OCR stay in process. GLINT launches only local, read-only commands:
+## Install
 
-- `paimos --instance <ppm|pma> --json issue get <key>`
-- `gh pr view … --json …` for mapped pull-request candidates
+1. Download [`Glint-0.3.1.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.1/Glint-0.3.1.zip).
+2. Move `Glint.app` to `~/Applications` or `/Applications`.
+3. Open GLINT and grant Screen Recording when macOS asks.
+4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
 
-Those tools may contact their configured services under your existing credentials. GLINT does not write to either service, does not add telemetry, and does not call an LLM. macOS Screen Recording permission is required for the small cursor-adjacent capture; GLINT also reads the foreground app identity and, when available under that permission, its visible window title to disambiguate otherwise identical ticket numbers.
+Default commands:
 
-GLINT stores only a bounded, decaying resolution hint keyed by application bundle identifier so a recent confirmed project can improve the next ambiguous match. It never stores screen pixels or raw OCR text. Scan-feedback panels explicitly opt out of screen capture.
+| Command | Shortcut | Behavior |
+| --- | --- | --- |
+| Inspect | `⌥Space` | Scan once at the pointer and show a temporary card. |
+| Pin / direct open | `⇧⌥Space` | Open pinned, pin the temporary card, focus it, or close it. |
 
-## Build and run
+Both shortcuts are fully configurable. Native recorder controls reject unsafe plain-letter globals and report conflicts directly in Settings.
+
+## Pinned navigation
+
+| Input | Result |
+| --- | --- |
+| Mouse wheel | Select another resolved ticket. |
+| `⇧` + mouse wheel | Keep the number and try another project. |
+| Type digits | Jump to a ticket number while keeping the project. |
+| Type letters | Fuzzy-match a project; the best guess previews immediately. |
+| Paste `PHAROS-203`, `#203`, or `203` | Resolve a full key, pull request, or number directly. |
+| Return | Apply the previewed input. |
+| Escape | Clear the current input, then close. |
+
+Typing is captured only while the pinned card is focused. Ordinary scrolling elsewhere on the Mac is never intercepted.
+
+## Build from source
 
 You need macOS 13 or newer, a Swift 5.10 toolchain, and authenticated `paimos` / `gh` installations for the sources you want to resolve.
 
@@ -90,29 +112,40 @@ swift build
 open dist/Glint.app
 ```
 
-Grant Screen Recording from GLINT's menu when macOS asks. Inspect always performs one scan; optional hover activation defaults to a 300 ms dwell and can be disabled or changed in Settings.
+The packaging script stages `dist/Glint.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so Screen Recording permission survives rebuilds without a paid signing identity.
 
-The packaging script stages `dist/Glint.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so the Screen Recording grant survives rebuilds without a paid signing identity.
+## Release and visual workflow
 
-## Versions and release history
-
-[`VERSION`](VERSION) is the single source for the packaged short version. [`CHANGELOG.md`](CHANGELOG.md) keeps the user-visible history. Bump both atomically with:
+[`VERSION`](VERSION) is the source of truth for the packaged version; [`CHANGELOG.md`](CHANGELOG.md) keeps the user-visible history.
 
 ```sh
 ./scripts/bump-version.sh patch "Short user-visible release summary"
+./scripts/test.sh
+./scripts/package-release.sh
+swift scripts/render-marketing-shots.swift
 ```
 
-Use `major`, `minor`, or `patch`. Validate the release path with `./scripts/test.sh` before packaging.
+The last command rebuilds the README hero and feature gallery from the real captured GLINT interfaces plus the checked-in scan-field artwork. The raw release screenshots and the [0.3.0 visual comparison](docs/compare-0.3.0.html) remain available for closer inspection.
 
 ## Project map
 
 ```text
-Sources/Glint/              App, OCR, parsing, resolution, shortcuts, and UI
-Sources/Glint/Resources/    Packaged visual assets
-Fixtures/                   Deterministic hover/OCR test material
-scripts/test.sh             Build, self-tests, and versioning regression checks
-scripts/package-app.sh      Release build, app bundle, metadata, and local signing
-scripts/bump-version.sh     Semantic version and changelog update
+Sources/Glint/               App, OCR, parsing, resolution, shortcuts, and UI
+Sources/Glint/Resources/     Packaged visual assets
+Fixtures/                    Deterministic hover/OCR test material
+docs/screenshots/            Raw product captures and rendered marketing images
+scripts/test.sh              Build, self-tests, and versioning regression checks
+scripts/package-app.sh       Release build, app bundle, metadata, and local signing
+scripts/package-release.sh   Signed app plus versioned release archive
+scripts/bump-version.sh      Semantic version and changelog update
+scripts/render-marketing-shots.swift
+                             Reproducible GitHub image compositor
 ```
 
-GLINT is currently a personal, private utility. Its narrow permissions and local-first architecture are intentional product constraints.
+GLINT is deliberately small, local-first, and read-only. Those are product constraints, not missing features.
+
+## License
+
+GLINT is open-source software licensed under the [GNU Affero General Public License v3.0](LICENSE). The complete terms are included in the repository and inside every packaged app.
+
+Copyright © 2026 Markus Barta.
