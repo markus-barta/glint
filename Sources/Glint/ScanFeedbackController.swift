@@ -70,6 +70,19 @@ enum ScanFeedbackGeometry {
     }
 }
 
+enum ScanFeedbackDisappearancePolicy {
+    static func shouldExpire(scheduledGeneration: Int, currentGeneration: Int) -> Bool {
+        scheduledGeneration == currentGeneration
+    }
+}
+
+enum ScanFeedbackTiming {
+    static let invokedLifetime: TimeInterval = 1.5
+    static let recognizedLifetime: TimeInterval = 2.2
+    static let resolvedLifetime: TimeInterval = 0.7
+    static let noMatchLifetime: TimeInterval = 0.85
+}
+
 private struct ScanFeedbackView: View {
     let phase: ScanFeedbackPhase
     let panelFrame: CGRect
@@ -193,6 +206,7 @@ final class ScanFeedbackController {
     private var phase: ScanFeedbackPhase?
     private var lastPoint = CGPoint.zero
     private var disappearanceTask: Task<Void, Never>?
+    private var presentationGeneration = 0
     private var displayOptionsObserver: NSObjectProtocol?
     private var reduceMotion: Bool
 
@@ -223,7 +237,7 @@ final class ScanFeedbackController {
 
     func invoked(at point: CGPoint) {
         lastPoint = point
-        present(.invoked(point: point), around: CGRect(origin: point, size: .zero), lifetime: 1.5)
+        present(.invoked(point: point), around: CGRect(origin: point, size: .zero), lifetime: ScanFeedbackTiming.invokedLifetime)
     }
 
     func recognized(anchors: [ScanFeedbackAnchor], selected: ScanFeedbackAnchor?) {
@@ -234,20 +248,21 @@ final class ScanFeedbackController {
         present(
             .recognized(anchors: visible, selectedID: selected?.id),
             around: visible.map(\.bounds).reduce(CGRect.null) { $0.union($1) },
-            lifetime: 8
+            lifetime: ScanFeedbackTiming.recognizedLifetime
         )
     }
 
     func resolved(anchor: ScanFeedbackAnchor) {
         lastPoint = CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
-        present(.resolved(anchor: anchor), around: anchor.bounds, lifetime: 0.7)
+        present(.resolved(anchor: anchor), around: anchor.bounds, lifetime: ScanFeedbackTiming.resolvedLifetime)
     }
 
     func noMatch() {
-        present(.noMatch(point: lastPoint), around: CGRect(origin: lastPoint, size: .zero), lifetime: 0.85)
+        present(.noMatch(point: lastPoint), around: CGRect(origin: lastPoint, size: .zero), lifetime: ScanFeedbackTiming.noMatchLifetime)
     }
 
     func cancel() {
+        presentationGeneration += 1
         disappearanceTask?.cancel()
         disappearanceTask = nil
         phase = nil
@@ -274,6 +289,8 @@ final class ScanFeedbackController {
 
     private func present(_ phase: ScanFeedbackPhase, around contentBounds: CGRect, lifetime: TimeInterval) {
         disappearanceTask?.cancel()
+        presentationGeneration += 1
+        let generation = presentationGeneration
         self.phase = phase
         guard let frame = panelFrame(around: contentBounds) else {
             cancel()
@@ -288,14 +305,21 @@ final class ScanFeedbackController {
         panel.contentView = contentView
         panel.setFrame(frame, display: false)
         panel.orderFrontRegardless()
-        scheduleDisappearance(after: lifetime)
+        scheduleDisappearance(after: lifetime, generation: generation)
     }
 
-    private func scheduleDisappearance(after delay: TimeInterval) {
+    private func scheduleDisappearance(after delay: TimeInterval, generation: Int) {
         disappearanceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.cancel() }
+            await MainActor.run {
+                guard let self,
+                      ScanFeedbackDisappearancePolicy.shouldExpire(
+                          scheduledGeneration: generation,
+                          currentGeneration: self.presentationGeneration
+                      ) else { return }
+                self.cancel()
+            }
         }
     }
 

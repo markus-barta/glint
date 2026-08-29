@@ -2,6 +2,16 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+enum QueuedScanLifecyclePolicy {
+    static func shouldLaunch(
+        queuedGeneration: Int,
+        currentGeneration: Int,
+        completedGeneration: Int
+    ) -> Bool {
+        queuedGeneration == currentGeneration && queuedGeneration != completedGeneration
+    }
+}
+
 @MainActor final class HoverCoordinator {
     private enum Presentation { case temporary, pinned }
 
@@ -23,7 +33,12 @@ import Foundation
     private var editState = PinnedEditState()
     private var editTask: Task<Void, Never>?
     private var directGeneration = 0
-    private var pendingManualScan: (CGPoint, Presentation)?
+    private struct PendingManualScan {
+        let position: CGPoint
+        let presentation: Presentation
+        let generation: Int
+    }
+    private var pendingManualScan: PendingManualScan?
     private struct ManualInspectionState {
         let anchor: CGPoint
         let startedAt: Date
@@ -59,7 +74,11 @@ import Foundation
         let presentation: Presentation = overlay.isSticky ? .pinned : .temporary
         if isScanning {
             scanGeneration += 1
-            pendingManualScan = (NSEvent.mouseLocation, presentation)
+            pendingManualScan = PendingManualScan(
+                position: NSEvent.mouseLocation,
+                presentation: presentation,
+                generation: scanGeneration
+            )
             if presentation == .pinned { overlay.showPinnedStatus("Reading near pointer…") }
             return
         }
@@ -97,7 +116,12 @@ import Foundation
             return
         }
         if isScanning {
-            scanGeneration += 1; pendingManualScan = (NSEvent.mouseLocation, .pinned)
+            scanGeneration += 1
+            pendingManualScan = PendingManualScan(
+                position: NSEvent.mouseLocation,
+                presentation: .pinned,
+                generation: scanGeneration
+            )
         } else {
             scanGeneration += 1; _ = trigger(at: NSEvent.mouseLocation, presentation: .pinned, requiresStablePointer: false)
         }
@@ -110,9 +134,11 @@ import Foundation
                 appState?.screenRecordingGranted = granted
                 if !granted {
                     scanGeneration += 1
+                    pendingManualScan = nil
                     clearManualInspection()
                     scanFeedback.cancel()
                     if !overlay.isSticky { overlay.hide() }
+                    appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
                 }
             }
             lastPermissionPollAt = Date()
@@ -139,13 +165,17 @@ import Foundation
         if preferences != observedActivationPreferences {
             observedActivationPreferences = preferences
             scanGeneration += 1
+            pendingManualScan = nil
             dwellScannedPosition = nil
             stableSince = now
             overlay.hide()
             scanFeedback.cancel()
+            appState?.activity = "Ready"
         }
         if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
+            pendingManualScan = nil
             lastPosition = position; stableSince = now; dwellScannedPosition = nil; scanGeneration += 1; overlay.hide(); scanFeedback.cancel()
+            appState?.activity = "Ready"
         }
         guard appState?.screenRecordingGranted == true else { return }
         let heldModifiers = Self.hotKeyModifiers(from: NSEvent.modifierFlags)
@@ -183,7 +213,7 @@ import Foundation
         if appState?.activationPreferences.scanFeedbackEnabled == true { scanFeedback.invoked(at: position) }
         if presentation == .pinned, overlay.isSticky { overlay.showPinnedStatus("Reading near pointer…") }
         Task {
-            defer { finishScan() }
+            defer { finishScan(completedGeneration: generation) }
             let fragments = await ocr.recognizeFragments(plan: plan)
             let input = Self.contextInput(from: fragments)
             let tokens = TokenParser.parse(input)
@@ -263,11 +293,21 @@ import Foundation
         return true
     }
 
-    private func finishScan() {
+    private func finishScan(completedGeneration: Int) {
         isScanning = false
         guard let pending = pendingManualScan else { return }
         pendingManualScan = nil
-        _ = trigger(at: pending.0, presentation: pending.1, requiresStablePointer: false)
+        guard QueuedScanLifecyclePolicy.shouldLaunch(
+            queuedGeneration: pending.generation,
+            currentGeneration: scanGeneration,
+            completedGeneration: completedGeneration
+        ) else {
+            appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
+            return
+        }
+        if !trigger(at: pending.position, presentation: pending.presentation, requiresStablePointer: false) {
+            appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
+        }
     }
 
     private func recordLearningIfEligible(
@@ -439,6 +479,7 @@ import Foundation
     }
     private func closePinned() {
         clearManualInspection()
+        pendingManualScan = nil
         scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
         lastPosition = NSEvent.mouseLocation; stableSince = Date(); dwellScannedPosition = nil; appState?.activity = "Ready"
     }

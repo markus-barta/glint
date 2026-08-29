@@ -194,6 +194,21 @@ enum SelfTests {
             fputs("self-test failed: stale scan feedback lifecycle gate\n", stderr)
             exit(1)
         }
+        guard QueuedScanLifecyclePolicy.shouldLaunch(
+            queuedGeneration: 8, currentGeneration: 8, completedGeneration: 7
+        ), !QueuedScanLifecyclePolicy.shouldLaunch(
+            queuedGeneration: 8, currentGeneration: 9, completedGeneration: 7
+        ), !QueuedScanLifecyclePolicy.shouldLaunch(
+            queuedGeneration: 8, currentGeneration: 8, completedGeneration: 8
+        ) else {
+            fputs("self-test failed: queued scan generation lifecycle\n", stderr); exit(1)
+        }
+        guard ScanFeedbackDisappearancePolicy.shouldExpire(scheduledGeneration: 12, currentGeneration: 12),
+              !ScanFeedbackDisappearancePolicy.shouldExpire(scheduledGeneration: 11, currentGeneration: 12),
+              ScanFeedbackTiming.recognizedLifetime <= 2.5,
+              ScanFeedbackTiming.recognizedLifetime > ScanFeedbackTiming.resolvedLifetime else {
+            fputs("self-test failed: scan feedback expiry generation\n", stderr); exit(1)
+        }
         var holdActivation = activation
         holdActivation.mode = .hold
         guard !HoverInvocationPolicy.shouldTrigger(
