@@ -82,7 +82,11 @@ enum SelfTests {
         guard PinCommandPolicy.action(for: .hidden) == .openPinned,
               PinCommandPolicy.action(for: .temporary) == .pinTemporary,
               PinCommandPolicy.action(for: .pinnedInactive) == .focusPinned,
-              PinCommandPolicy.action(for: .pinnedActive) == .closePinned else {
+              PinCommandPolicy.action(for: .pinnedActive) == .closePinned,
+              PinCommandPolicy.clearsManualInspection(for: .openPinned),
+              PinCommandPolicy.clearsManualInspection(for: .pinTemporary),
+              !PinCommandPolicy.clearsManualInspection(for: .focusPinned),
+              !PinCommandPolicy.clearsManualInspection(for: .closePinned) else {
             fputs("self-test failed: pin command state transitions\n", stderr)
             exit(1)
         }
@@ -123,6 +127,10 @@ enum SelfTests {
             fputs("self-test failed: pasted ticket forms\n", stderr)
             exit(1)
         }
+        let compactPRTokens = TokenParser.parse(["PR#42", "pr#43"])
+        guard compactPRTokens.map(\.kind) == [.hashNumber(42), .hashNumber(43)] else {
+            fputs("self-test failed: case-symmetric compact PR parsing\n", stderr); exit(1)
+        }
         guard ProjectMatcher.bestMatch(for: "phraos")?.key == "PHAROS",
               ProjectMatcher.bestMatch(for: "pamo")?.key == "PAI",
               ProjectMatcher.bestMatch(for: "haus")?.key == "HAUSV",
@@ -158,6 +166,13 @@ enum SelfTests {
             }
             migrationDefaults.removePersistentDomain(forName: migrationSuite)
         }
+        let corruptSuite = "GlintSelfTests.CorruptActivation.\(UUID().uuidString)"
+        guard let corruptDefaults = UserDefaults(suiteName: corruptSuite) else { exit(1) }
+        corruptDefaults.set("not-a-mode", forKey: "activation.mode")
+        guard ActivationPreferences.load(defaults: corruptDefaults).mode == ActivationPreferences.defaults.mode else {
+            fputs("self-test failed: corrupt activation mode fallback\n", stderr); exit(1)
+        }
+        corruptDefaults.removePersistentDomain(forName: corruptSuite)
         guard !HoverInvocationPolicy.shouldTrigger(
             preferences: .init(mode: .off, dwellMilliseconds: 300, holdModifiers: [.option], responsiveness: .balanced, scanFeedbackEnabled: true),
             stableDuration: 10, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 10
@@ -210,8 +225,7 @@ enum SelfTests {
         }
         guard !ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 35, elapsed: 7.9),
               ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 37, elapsed: 1),
-              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 8),
-              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 0, escapePressed: true) else {
+              ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 8) else {
             fputs("self-test failed: manual inspection lifetime policy\n", stderr); exit(1)
         }
         guard ResolutionLookupPolicy.initialCount(total: 16) == 4,
@@ -238,6 +252,11 @@ enum SelfTests {
               presentation.circularAlternativeIndices(count: 4, selectedIndex: 3) == [0, 1, 2] else {
             fputs("self-test failed: ticket appearance persistence/navigation\n", stderr)
             exit(1)
+        }
+        guard AppearanceResetPolicy.shouldKeepUndo(previous: presentation, current: .defaults),
+              !AppearanceResetPolicy.shouldKeepUndo(previous: presentation, current: presentation),
+              !AppearanceResetPolicy.shouldKeepUndo(previous: nil, current: .defaults) else {
+            fputs("self-test failed: appearance reset undo lifecycle\n", stderr); exit(1)
         }
         let previewLines = (1...6).map {
             GlintLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")

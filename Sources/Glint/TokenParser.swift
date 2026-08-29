@@ -85,7 +85,7 @@ enum TokenParser {
         pattern: #"\b([A-Z][A-Z0-9]{1,11})-([0-9]+)\b"#,
         options: [.caseInsensitive]
     )
-    private static let hashRegex = try! NSRegularExpression(pattern: #"(?<![A-Z0-9])#([0-9]+)\b"#)
+    private static let hashRegex = try! NSRegularExpression(pattern: #"#([0-9]+)\b"#)
     private static let versionRegex = try! NSRegularExpression(pattern: #"\b[0-9]+\.[0-9]+(?:\.[0-9]+)+\b"#)
     private static let bareRegex = try! NSRegularExpression(pattern: #"(?<![A-Z0-9#.-])\b[0-9]+\b(?![.-])"#)
 

@@ -197,6 +197,10 @@ enum PinCommandPolicy {
         case .pinnedActive: return .closePinned
         }
     }
+
+    static func clearsManualInspection(for action: PinCommandAction) -> Bool {
+        action == .openPinned || action == .pinTemporary
+    }
 }
 
 enum CircularNavigation {

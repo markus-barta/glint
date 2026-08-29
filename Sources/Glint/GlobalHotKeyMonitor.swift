@@ -22,7 +22,7 @@ private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userD
 }
 
 @MainActor final class GlobalHotKeyMonitor {
-    enum Command: UInt32, CaseIterable { case inspect = 1, pin = 2, dismiss = 3 }
+    enum Command: UInt32, CaseIterable { case inspect = 1, pin = 2 }
 
     var onCommand: ((Command) -> Void)?
     private(set) var errors: [Command: String] = [:]
@@ -47,20 +47,11 @@ private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userD
     }
 
     func configure(inspect: HotKey?, pin: HotKey?) {
-        [Command.inspect, .pin].forEach { command in
-            if let reference = references.removeValue(forKey: command) { _ = UnregisterEventHotKey(reference) }
-        }
+        references.values.forEach { _ = UnregisterEventHotKey($0) }
+        references.removeAll()
         errors.removeAll()
         register(inspect, command: .inspect)
         register(pin, command: .pin)
-    }
-
-    func setTemporaryDismissEnabled(_ enabled: Bool) {
-        if let reference = references.removeValue(forKey: .dismiss) { _ = UnregisterEventHotKey(reference) }
-        guard enabled else { return }
-        register(HotKey(keyCode: 53, modifiers: [], keyLabel: "Esc"), command: .dismiss)
-        // Escape is a short-lived internal affordance, not a user-configured shortcut.
-        errors.removeValue(forKey: .dismiss)
     }
 
     fileprivate func invoke(id: UInt32) {

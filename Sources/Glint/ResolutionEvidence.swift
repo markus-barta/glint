@@ -64,6 +64,8 @@ struct CandidateProposal: Hashable, Sendable {
 
 struct ResolutionPlan: Hashable, Sendable {
     static let closeScoreThreshold = 120
+    // Keep enough evidence-ranked collision alternatives for the pinned navigator;
+    // TicketResolver still runs no more than four external lookups concurrently.
     static let maximumCandidates = 16
 
     let proposals: [CandidateProposal]

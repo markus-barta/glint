@@ -67,16 +67,13 @@ import Foundation
         _ = trigger(at: NSEvent.mouseLocation, presentation: presentation, requiresStablePointer: false)
     }
 
-    func performDismissCommand() {
-        guard manualInspection != nil else { return }
-        dismissManualInspection()
-    }
-
     func performPinCommand() {
         let state: PanelInteractionState = overlay.isSticky
             ? (overlay.isActive ? .pinnedActive : .pinnedInactive)
             : (overlay.isVisible ? .temporary : .hidden)
-        switch PinCommandPolicy.action(for: state) {
+        let action = PinCommandPolicy.action(for: state)
+        if PinCommandPolicy.clearsManualInspection(for: action) { clearManualInspection() }
+        switch action {
         case .closePinned:
             closePinned(); return
         case .focusPinned:
@@ -84,7 +81,6 @@ import Foundation
             appState?.activity = overlay.selectedLine.map { "Pinned · \($0.title)" } ?? "Pinned navigator"
             return
         case .pinTemporary:
-            clearManualInspection()
             resetEditing()
             overlay.pin(shortcutLabel: pinShortcutLabel)
             syncSelectionContext()
@@ -121,7 +117,12 @@ import Foundation
             }
             lastPermissionPollAt = Date()
         }
-        if overlay.isSticky { return }
+        if overlay.isSticky {
+            // Sticky presentation owns its own local Escape handling and must
+            // never inherit the temporary card's movement/lifetime state.
+            clearManualInspection()
+            return
+        }
         let now = Date()
         let position = NSEvent.mouseLocation
         if let manualInspection {
@@ -177,7 +178,6 @@ import Foundation
         let foreground = ForegroundApplicationContext.capture()
         if presentation == .temporary, !requiresStablePointer {
             manualInspection = ManualInspectionState(anchor: position, startedAt: Date())
-            appState?.setTemporaryDismissEnabled(true)
         }
         isScanning = true; lastScanAt = Date(); appState?.activity = "Reading near cursor…"
         if appState?.activationPreferences.scanFeedbackEnabled == true { scanFeedback.invoked(at: position) }
@@ -445,7 +445,6 @@ import Foundation
 
     private func clearManualInspection() {
         manualInspection = nil
-        appState?.setTemporaryDismissEnabled(false)
     }
 
     private func dismissManualInspection() {

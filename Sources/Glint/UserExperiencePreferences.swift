@@ -109,7 +109,7 @@ struct ActivationPreferences: Equatable {
             return migrated
         }
         var value = ActivationPreferences(
-            mode: HoverActivationMode(rawValue: defaults.string(forKey: prefix + "mode") ?? "hold") ?? .hold,
+            mode: HoverActivationMode(rawValue: defaults.string(forKey: prefix + "mode") ?? Self.defaults.mode.rawValue) ?? Self.defaults.mode,
             dwellMilliseconds: defaults.integer(forKey: prefix + "dwellMilliseconds"),
             holdModifiers: HotKeyModifiers(rawValue: UInt32(defaults.integer(forKey: prefix + "holdModifiers"))),
             responsiveness: ContinuousResponsiveness(rawValue: defaults.string(forKey: prefix + "responsiveness") ?? "balanced") ?? .balanced,
@@ -212,6 +212,12 @@ struct PresentationPreferences: Equatable {
         let limit = min(alternativePreviews, count - 1)
         let selected = ((selectedIndex % count) + count) % count
         return (1...limit).map { (selected + $0) % count }
+    }
+}
+
+enum AppearanceResetPolicy {
+    static func shouldKeepUndo(previous: PresentationPreferences?, current: PresentationPreferences) -> Bool {
+        previous != nil && current == .defaults
     }
 }
 

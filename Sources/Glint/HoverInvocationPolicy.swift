@@ -33,8 +33,8 @@ enum ManualInspectionPolicy {
     static let movementGraceRadius: CGFloat = 36
     static let lifetime: TimeInterval = 8
 
-    static func shouldDismiss(distanceFromAnchor: CGFloat, elapsed: TimeInterval, escapePressed: Bool = false) -> Bool {
-        escapePressed || distanceFromAnchor > movementGraceRadius || elapsed >= lifetime
+    static func shouldDismiss(distanceFromAnchor: CGFloat, elapsed: TimeInterval) -> Bool {
+        distanceFromAnchor > movementGraceRadius || elapsed >= lifetime
     }
 }
 

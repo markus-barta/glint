@@ -93,7 +93,6 @@ private enum GlintBrand {
             switch command {
             case .inspect: self.coordinator.performInspectCommand()
             case .pin: self.coordinator.performPinCommand()
-            case .dismiss: self.coordinator.performDismissCommand()
             }
         }
         configureHotKeys()
@@ -113,7 +112,6 @@ private enum GlintBrand {
         LearnedContextStore.clear()
         activity = "Titles and learned context cleared"
     }
-    func setTemporaryDismissEnabled(_ enabled: Bool) { hotKeyMonitor.setTemporaryDismissEnabled(enabled) }
     func requestScreenRecording() {
         screenRecordingGranted = CGRequestScreenCaptureAccess() || CGPreflightScreenCaptureAccess()
         if !screenRecordingGranted,
@@ -675,6 +673,11 @@ struct SettingsView: View {
                 .disabled(state.presentationPreferences == .defaults)
             }
         }
+        .onChange(of: state.presentationPreferences) { value in
+            if !AppearanceResetPolicy.shouldKeepUndo(previous: appearanceBeforeReset, current: value) {
+                appearanceBeforeReset = nil
+            }
+        }
     }
 
     private var privacyPage: some View {
@@ -702,6 +705,7 @@ struct SettingsView: View {
                 VStack(spacing: 10) {
                     privacyRow("viewfinder", "Small crop only", "Captures only the area needed to find a ticket ID.")
                     privacyRow("text.viewfinder", "Local OCR", "Recognition runs entirely through Apple Vision.")
+                    privacyRow("app.badge", "Foreground app context", "Reads the active app’s bundle identifier and visible window title locally to disambiguate matches.")
                     privacyRow("externaldrive.badge.xmark", "No pixel storage", "Images are never saved, uploaded, or sent to a model.")
                 }
             }
