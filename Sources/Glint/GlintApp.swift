@@ -98,7 +98,7 @@ private enum GlintBrand {
         configureHotKeys()
         coordinator.start()
 #if DEBUG
-        if CommandLine.arguments.contains("--settings-probe") {
+        if CommandLine.arguments.contains("--settings-probe") || CommandLine.arguments.contains("--settings-capture-probe") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
         if CommandLine.arguments.contains("--about-probe") {
@@ -124,6 +124,15 @@ private enum GlintBrand {
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+#if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--settings-capture-probe"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.settingsWindowController?.captureProbe(to: url)
+            }
+        }
+#endif
     }
     func openAbout() {
         if aboutWindowController == nil { aboutWindowController = AboutWindowController() }
@@ -164,6 +173,16 @@ private enum GlintBrand {
         window.center()
         super.init(window: window)
     }
+#if DEBUG
+    func captureProbe(to url: URL) {
+        guard let view = window?.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        guard let data = representation.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+#endif
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
@@ -330,7 +349,7 @@ private final class ShortcutRecorderButton: NSButton {
     var hotKey: HotKey?
     var forbiddenHotKey: HotKey?
     var onChange: ((HotKey?) -> Void)?
-    var onValidation: ((String?) -> Void)?
+    var onFeedback: ((PreferenceFeedback?) -> Void)?
     private var recording = false
     override var acceptsFirstResponder: Bool { true }
 
@@ -349,24 +368,24 @@ private final class ShortcutRecorderButton: NSButton {
     }
     override func keyDown(with event: NSEvent) {
         guard recording else { return super.keyDown(with: event) }
-        if event.keyCode == 53 { finish(hotKey); return }
-        if event.keyCode == 51 || event.keyCode == 117 { finish(nil); return }
+        if event.keyCode == 53 { cancelRecording(); window?.makeFirstResponder(nil); return }
+        if event.keyCode == 51 || event.keyCode == 117 { finish(nil, feedback: .success("Shortcut cleared.")); return }
         let candidate = HotKey(keyCode: UInt32(event.keyCode), modifiers: Self.modifiers(from: event.modifierFlags), keyLabel: Self.label(for: event))
         guard candidate.isSafeGlobalShortcut else {
-            onValidation?("Use ⌘, ⌥, or ⌃ with regular keys. Function keys may be used alone."); NSSound.beep(); return
+            onFeedback?(.problem("Use ⌘, ⌥, or ⌃ with regular keys. Function keys may be used alone.")); NSSound.beep(); return
         }
         guard candidate != forbiddenHotKey else {
-            onValidation?("Inspect and Pin must use different shortcuts."); NSSound.beep(); return
+            onFeedback?(.problem("Inspect and Pin must use different shortcuts.")); NSSound.beep(); return
         }
-        finish(candidate)
+        finish(candidate, feedback: .success("Shortcut updated."))
     }
-    private func finish(_ value: HotKey?) {
+    private func finish(_ value: HotKey?, feedback: PreferenceFeedback) {
         recording = false
         hotKey = value
         title = value?.label ?? "Not set"
         bezelColor = nil
         contentTintColor = nil
-        onValidation?(nil)
+        onFeedback?(feedback)
         onChange?(value)
         window?.makeFirstResponder(nil)
     }
@@ -375,7 +394,7 @@ private final class ShortcutRecorderButton: NSButton {
         title = hotKey?.label ?? "Not set"
         bezelColor = nil
         contentTintColor = nil
-        onValidation?(nil)
+        onFeedback?(nil)
     }
     private static func modifiers(from flags: NSEvent.ModifierFlags) -> HotKeyModifiers {
         var result: HotKeyModifiers = []
@@ -395,14 +414,14 @@ private final class ShortcutRecorderButton: NSButton {
 private struct ShortcutRecorder: NSViewRepresentable {
     @Binding var hotKey: HotKey?
     let forbiddenHotKey: HotKey?
-    @Binding var validationMessage: String?
+    @Binding var feedback: PreferenceFeedback?
     func makeNSView(context: Context) -> ShortcutRecorderButton {
         let button = ShortcutRecorderButton(title: hotKey?.label ?? "Not set", target: nil, action: nil)
         button.bezelStyle = .rounded
         button.controlSize = .large
         button.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         button.setButtonType(.momentaryPushIn)
-        button.onChange = { hotKey = $0 }; button.onValidation = { validationMessage = $0 }
+        button.onChange = { hotKey = $0 }; button.onFeedback = { feedback = $0 }
         return button
     }
     func updateNSView(_ button: ShortcutRecorderButton, context: Context) {
@@ -438,16 +457,20 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var state: AppState
+    private let forceScanFeedbackOnForProbe: Bool
     @State private var selection: SettingsPane = .scanning
-    @State private var recorderMessage: String?
+    @State private var recorderFeedback: PreferenceFeedback?
     @State private var cacheCleared = false
     @State private var appearanceBeforeReset: PresentationPreferences?
 
     init(state: AppState) {
         self.state = state
 #if DEBUG
+        forceScanFeedbackOnForProbe = CommandLine.arguments.contains("--settings-capture-probe")
         if CommandLine.arguments.contains("--settings-appearance-probe") { _selection = State(initialValue: .appearance) }
         else if CommandLine.arguments.contains("--settings-pinned-probe") { _selection = State(initialValue: .pinned) }
+#else
+        forceScanFeedbackOnForProbe = false
 #endif
     }
 
@@ -536,7 +559,7 @@ struct SettingsView: View {
                 activationDetail
 
                 Divider()
-                Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
+                Toggle(isOn: scanFeedbackBinding) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Show scan feedback").fontWeight(.medium)
                         Text("Briefly marks where GLINT is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
@@ -562,9 +585,16 @@ struct SettingsView: View {
             HStack {
                 Text("Changes apply immediately—there is no Save button.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Restore Activation Defaults") { state.resetActivation(); recorderMessage = "Activation defaults restored." }
+                Button("Restore Activation Defaults") { state.resetActivation(); recorderFeedback = .success("Activation defaults restored.") }
             }
         }
+    }
+
+    private var scanFeedbackBinding: Binding<Bool> {
+        Binding(
+            get: { forceScanFeedbackOnForProbe || state.activationPreferences.scanFeedbackEnabled },
+            set: { state.activationPreferences.scanFeedbackEnabled = $0 }
+        )
     }
 
     @ViewBuilder private var activationDetail: some View {
@@ -632,7 +662,7 @@ struct SettingsView: View {
             HStack {
                 Text("Drag the handle at the top of a pinned card to place it on any screen.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Restore Shortcut Default") { state.resetPinHotKey(); recorderMessage = "Pinned-card shortcut restored." }
+                Button("Restore Shortcut Default") { state.resetPinHotKey(); recorderFeedback = .success("Pinned-card shortcut restored.") }
             }
         }
     }
@@ -733,10 +763,10 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var settingsFeedback: some View {
-        if let message = recorderMessage ?? state.hotKeyError {
-            Label(message, systemImage: state.hotKeyError == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+        if let feedback = PreferenceFeedback.resolved(local: recorderFeedback, globalError: state.hotKeyError) {
+            Label(feedback.message, systemImage: feedback.severity == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(state.hotKeyError == nil ? Color.green : Color.orange)
+                .foregroundStyle(feedback.severity == .success ? Color.green : Color.orange)
         } else {
             Text("Click the shortcut, press a new combination, or press Delete to clear it. Esc keeps the current value.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -756,7 +786,7 @@ struct SettingsView: View {
                 Text(subtitle).font(.callout).foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            ShortcutRecorder(hotKey: hotKey, forbiddenHotKey: forbidden, validationMessage: $recorderMessage)
+            ShortcutRecorder(hotKey: hotKey, forbiddenHotKey: forbidden, feedback: $recorderFeedback)
                 .frame(width: 148, height: 32)
         }
         .padding(16)
@@ -767,13 +797,13 @@ struct SettingsView: View {
         return Button {
             var modifiers = state.activationPreferences.holdModifiers
             if enabled {
-                guard modifiers != modifier else { recorderMessage = "Keep at least one hover modifier enabled."; NSSound.beep(); return }
+                guard modifiers != modifier else { recorderFeedback = .problem("Keep at least one hover modifier enabled."); NSSound.beep(); return }
                 modifiers.remove(modifier)
             } else {
                 modifiers.insert(modifier)
             }
             state.activationPreferences.holdModifiers = modifiers
-            recorderMessage = nil
+            recorderFeedback = nil
         } label: {
             HStack(spacing: 5) { Text(symbol).font(.title3); Text(name).font(.callout) }
                 .padding(.horizontal, 10).padding(.vertical, 6)

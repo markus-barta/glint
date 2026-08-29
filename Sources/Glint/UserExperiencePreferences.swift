@@ -111,13 +111,26 @@ struct ActivationPreferences: Equatable {
         var value = ActivationPreferences(
             mode: HoverActivationMode(rawValue: defaults.string(forKey: prefix + "mode") ?? Self.defaults.mode.rawValue) ?? Self.defaults.mode,
             dwellMilliseconds: defaults.integer(forKey: prefix + "dwellMilliseconds"),
-            holdModifiers: HotKeyModifiers(rawValue: UInt32(defaults.integer(forKey: prefix + "holdModifiers"))),
+            holdModifiers: sanitizedHoldModifiers(defaults.object(forKey: prefix + "holdModifiers")),
             responsiveness: ContinuousResponsiveness(rawValue: defaults.string(forKey: prefix + "responsiveness") ?? "balanced") ?? .balanced,
             scanFeedbackEnabled: defaults.object(forKey: prefix + "scanFeedbackEnabled") == nil ? true : defaults.bool(forKey: prefix + "scanFeedbackEnabled")
         )
         value.dwellMilliseconds = min(max(value.dwellMilliseconds == 0 ? 300 : value.dwellMilliseconds, dwellRange.lowerBound), dwellRange.upperBound)
-        if value.holdModifiers.isEmpty { value.holdModifiers = [.option] }
         return value
+    }
+
+    /// Defensive decoding seam for preferences written by older or corrupted builds.
+    static func sanitizedHoldModifiers(_ storedValue: Any?) -> HotKeyModifiers {
+        guard let number = storedValue as? NSNumber else { return Self.defaults.holdModifiers }
+        let signed = number.int64Value
+        guard signed >= 0, signed <= Int64(UInt32.max) else { return Self.defaults.holdModifiers }
+        let raw = UInt32(signed)
+        let knownMask = HotKeyModifiers.command.rawValue
+            | HotKeyModifiers.option.rawValue
+            | HotKeyModifiers.control.rawValue
+            | HotKeyModifiers.shift.rawValue
+        guard raw != 0, raw & ~knownMask == 0 else { return Self.defaults.holdModifiers }
+        return HotKeyModifiers(rawValue: raw)
     }
 
     func persist(defaults: UserDefaults = .standard) {
@@ -217,7 +230,27 @@ struct PresentationPreferences: Equatable {
 
 enum AppearanceResetPolicy {
     static func shouldKeepUndo(previous: PresentationPreferences?, current: PresentationPreferences) -> Bool {
-        previous != nil && current == .defaults
+        guard let previous, previous != .defaults else { return false }
+        return current == .defaults
+    }
+}
+
+enum PreferenceFeedbackSeverity: Equatable {
+    case success
+    case problem
+}
+
+struct PreferenceFeedback: Equatable {
+    let message: String
+    let severity: PreferenceFeedbackSeverity
+
+    static func success(_ message: String) -> PreferenceFeedback { PreferenceFeedback(message: message, severity: .success) }
+    static func problem(_ message: String) -> PreferenceFeedback { PreferenceFeedback(message: message, severity: .problem) }
+
+    /// Global registration failures always win over a local success message.
+    static func resolved(local: PreferenceFeedback?, globalError: String?) -> PreferenceFeedback? {
+        if let globalError { return .problem(globalError) }
+        return local
     }
 }
 

@@ -216,7 +216,7 @@ struct AppearanceCardPreview: View {
     private let sampleLines = [
         GlintLine(key: "GLINT-22", state: "in-progress", title: "A card that feels unmistakably yours", source: "ppm", metadata: "ticket · high priority", detail: "See the right amount of context, then scroll through alternatives with confidence."),
         GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
-        GlintLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "github"),
+        GlintLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "gh"),
         GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
         GlintLine(key: "GLINT-19", state: "open", title: "Add scan feedback", source: "ppm")
     ]
