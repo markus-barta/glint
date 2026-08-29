@@ -38,6 +38,38 @@ private final class ScanFeedbackPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+enum ScanFeedbackGeometry {
+    static func panelFrame(
+        around rawBounds: CGRect,
+        lastPoint: CGPoint,
+        screenFrames: [CGRect],
+        mainScreenFrame: CGRect?
+    ) -> CGRect? {
+        guard !screenFrames.isEmpty else { return nil }
+        let point = rawBounds.isNull
+            ? lastPoint
+            : CGPoint(x: rawBounds.midX, y: rawBounds.midY)
+        let screenFrame = screenFrames.first(where: { $0.contains(point) })
+            ?? screenFrames.first(where: { $0.insetBy(dx: -1, dy: -1).contains(point) })
+            ?? mainScreenFrame
+            ?? screenFrames.first
+        guard let screenFrame else { return nil }
+
+        let desired = (rawBounds.isNull ? CGRect(origin: point, size: .zero) : rawBounds)
+            .insetBy(dx: -72, dy: -52)
+            .union(CGRect(x: point.x - 54, y: point.y - 54, width: 108, height: 108))
+        let visible = desired.intersection(screenFrame)
+        if !visible.isNull, !visible.isEmpty { return visible }
+
+        let safePoint = CGPoint(
+            x: min(max(point.x, screenFrame.minX), screenFrame.maxX),
+            y: min(max(point.y, screenFrame.minY), screenFrame.maxY)
+        )
+        return CGRect(x: safePoint.x - 54, y: safePoint.y - 54, width: 108, height: 108)
+            .intersection(screenFrame)
+    }
+}
+
 private struct ScanFeedbackView: View {
     let phase: ScanFeedbackPhase
     let panelFrame: CGRect
@@ -164,7 +196,7 @@ final class ScanFeedbackController {
     private var displayOptionsObserver: NSObjectProtocol?
     private var reduceMotion: Bool
 
-    init() {
+    init(allowsCapture: Bool = false) {
         reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         panel = ScanFeedbackPanel(
             contentRect: .zero,
@@ -172,7 +204,7 @@ final class ScanFeedbackController {
             backing: .buffered,
             defer: false
         )
-        configurePanel()
+        configurePanel(allowsCapture: allowsCapture)
         displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
@@ -222,7 +254,7 @@ final class ScanFeedbackController {
         panel.orderOut(nil)
     }
 
-    private func configurePanel() {
+    private func configurePanel(allowsCapture: Bool) {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isOpaque = false
@@ -230,14 +262,23 @@ final class ScanFeedbackController {
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
+#if DEBUG
+        panel.sharingType = allowsCapture ? .readOnly : .none
+#else
+        // Release feedback can never be captured, even if a caller passes the
+        // debug seam's flag by mistake.
         panel.sharingType = .none
+#endif
         panel.isReleasedWhenClosed = false
     }
 
     private func present(_ phase: ScanFeedbackPhase, around contentBounds: CGRect, lifetime: TimeInterval) {
         disappearanceTask?.cancel()
         self.phase = phase
-        let frame = panelFrame(around: contentBounds)
+        guard let frame = panelFrame(around: contentBounds) else {
+            cancel()
+            return
+        }
         let contentView = NSHostingView(rootView: ScanFeedbackView(
             phase: phase,
             panelFrame: frame,
@@ -269,22 +310,20 @@ final class ScanFeedbackController {
         case let .recognized(anchors, _): contentBounds = anchors.map(\.bounds).reduce(CGRect.null) { $0.union($1) }
         case let .resolved(anchor): contentBounds = anchor.bounds
         }
-        let frame = panelFrame(around: contentBounds)
+        guard let frame = panelFrame(around: contentBounds) else {
+            cancel()
+            return
+        }
         panel.contentView = NSHostingView(rootView: ScanFeedbackView(phase: phase, panelFrame: frame, reduceMotion: reduceMotion))
     }
 
-    private func panelFrame(around rawBounds: CGRect) -> CGRect {
-        let point = rawBounds.isNull
-            ? lastPoint
-            : CGPoint(x: rawBounds.midX, y: rawBounds.midY)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) })
-            ?? NSScreen.screens.first(where: { $0.frame.insetBy(dx: -1, dy: -1).contains(point) })
-            ?? NSScreen.main
-            ?? NSScreen.screens[0]
-        let desired = (rawBounds.isNull ? CGRect(origin: point, size: .zero) : rawBounds)
-            .insetBy(dx: -72, dy: -52)
-            .union(CGRect(x: point.x - 54, y: point.y - 54, width: 108, height: 108))
-        return desired.intersection(screen.frame)
+    private func panelFrame(around rawBounds: CGRect) -> CGRect? {
+        ScanFeedbackGeometry.panelFrame(
+            around: rawBounds,
+            lastPoint: lastPoint,
+            screenFrames: NSScreen.screens.map(\.frame),
+            mainScreenFrame: NSScreen.main?.frame
+        )
     }
 
     private func deduplicated(_ anchors: [ScanFeedbackAnchor]) -> [ScanFeedbackAnchor] {
@@ -294,4 +333,26 @@ final class ScanFeedbackController {
             return seen.insert(key).inserted
         }
     }
+
+#if DEBUG
+    func showDebugInvoked(at point: CGPoint) {
+        reduceMotion = true
+        lastPoint = point
+        present(.invoked(point: point), around: CGRect(origin: point, size: .zero), lifetime: 60)
+    }
+
+    func showDebugRecognized(anchors: [ScanFeedbackAnchor], selected: ScanFeedbackAnchor) {
+        lastPoint = CGPoint(x: selected.bounds.midX, y: selected.bounds.midY)
+        present(
+            .recognized(anchors: anchors, selectedID: selected.id),
+            around: anchors.map(\.bounds).reduce(CGRect.null) { $0.union($1) },
+            lifetime: 60
+        )
+    }
+
+    func showDebugResolved(anchor: ScanFeedbackAnchor) {
+        lastPoint = CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        present(.resolved(anchor: anchor), around: anchor.bounds, lifetime: 60)
+    }
+#endif
 }

@@ -26,3 +26,25 @@ enum HoverInvocationPolicy {
         }
     }
 }
+
+enum ScanFeedbackLifecycleEvent: CaseIterable {
+    case invoked
+    case recognized
+    case resolved
+    case noMatch
+}
+
+/// Keeps asynchronous OCR/lookup completions from repainting feedback owned by
+/// a newer pointer position or command. Stale work must return silently: the
+/// generation change itself owns cancellation, and may already have presented
+/// the next scan's invocation.
+enum ScanFeedbackLifecyclePolicy {
+    static func permits(
+        _ event: ScanFeedbackLifecycleEvent,
+        startedGeneration: Int,
+        currentGeneration: Int
+    ) -> Bool {
+        _ = event
+        return startedGeneration == currentGeneration
+    }
+}

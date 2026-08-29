@@ -182,6 +182,10 @@ enum ResolutionHistoryStore {
 }
 
 enum EvidenceCandidatePlanner {
+    private static let canonicalRepos = Set(ProjectDescriptor.known.compactMap {
+        CandidatePlanner.repo(for: $0.key)?.lowercased()
+    })
+
     private struct ProjectMention: Hashable {
         let project: ProjectDescriptor
         let fragmentIndex: Int
@@ -203,6 +207,7 @@ enum EvidenceCandidatePlanner {
         var score: Int
         var reasons: [ResolutionReason]
         var sourceOrder: Int
+        var anchorWeight: Int
         var inferredProject: String?
         var eligibility: ResolutionLearningEligibility
     }
@@ -240,7 +245,14 @@ enum EvidenceCandidatePlanner {
                 if !existing.reasons.contains(where: { $0.code == reason.code && $0.label == reason.label }) {
                     existing.reasons.append(reason)
                 }
-                existing.sourceOrder = min(existing.sourceOrder, token.sourceOrder)
+                // The visible anchor must point at the evidence that actually
+                // drove this proposal. A weak earlier fallback must not steal
+                // the highlight from a later explicit key or repository URL.
+                if reason.weight > existing.anchorWeight ||
+                    (reason.weight == existing.anchorWeight && token.sourceOrder < existing.sourceOrder) {
+                    existing.sourceOrder = token.sourceOrder
+                    existing.anchorWeight = reason.weight
+                }
                 if existing.inferredProject == nil { existing.inferredProject = project }
                 if eligibility.rawValue > existing.eligibility.rawValue { existing.eligibility = eligibility }
                 drafts[spec] = existing
@@ -250,6 +262,7 @@ enum EvidenceCandidatePlanner {
                     score: reason.weight,
                     reasons: [reason],
                     sourceOrder: token.sourceOrder,
+                    anchorWeight: reason.weight,
                     inferredProject: project,
                     eligibility: eligibility
                 )
@@ -371,7 +384,7 @@ enum EvidenceCandidatePlanner {
                             eligibility: .userConfirmation
                         )
                     }
-                    if let repo = signal.repo {
+                    if let repo = signal.repo, canonicalRepos.contains(repo.lowercased()) {
                         add(
                             .pullRequest(number: number, repo: repo), token: token, project: signal.project,
                             reason: ResolutionReason(code: "per-app-repo-history", label: "recent repository in this app", weight: signal.weight, strength: .weak),
@@ -464,7 +477,10 @@ enum EvidenceCandidatePlanner {
             if let regex = try? NSRegularExpression(pattern: slugPattern) {
                 for match in regex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
                     let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))".lowercased()
-                    guard !repo.hasPrefix("github.com/") else { continue }
+                    // A bare owner/name shape is commonly a source path,
+                    // date, or prose such as “and/or”. Only canonical repos
+                    // are trusted without explicit github.com URL evidence.
+                    guard !repo.hasPrefix("github.com/"), canonicalRepos.contains(repo) else { continue }
                     mentions.append(.init(repo: repo, fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: nil, isGitHubURL: false))
                 }
             }
@@ -561,6 +577,63 @@ enum ResolverDeterministicChecks {
         let pr = EvidenceCandidatePlanner.plan(input: .init(lines: ["markus-barta/glint PR #20"]), context: context)
         if pr.proposals.first?.spec != .pullRequest(number: 20, repo: "markus-barta/glint") { failures.append("#PR syntax") }
 
+        let customURL = EvidenceCandidatePlanner.plan(
+            input: .init(lines: ["https://github.com/example/custom/pull/42"]),
+            context: context
+        )
+        if customURL.proposals.first?.spec != .pullRequest(number: 42, repo: "example/custom") {
+            failures.append("explicit GitHub URL")
+        }
+
+        let canonicalRepos = Set(ProjectDescriptor.known.compactMap {
+            CandidatePlanner.repo(for: $0.key)?.lowercased()
+        })
+        for unsafeText in ["Sources/Glint #42", "2026/08/29 #42", "and/or #42"] {
+            let unsafePlan = EvidenceCandidatePlanner.plan(input: .init(lines: [unsafeText]), context: context)
+            let untrustedRepo = unsafePlan.proposals.contains { proposal in
+                guard case let .pullRequest(_, repo) = proposal.spec else { return false }
+                return !canonicalRepos.contains(repo.lowercased())
+            }
+            if untrustedRepo { failures.append("untrusted repo shape: \(unsafeText)") }
+        }
+        var legacyHistory = ApplicationResolutionHistory()
+        let legacyCustomRepo = CandidateProposal(
+            spec: .pullRequest(number: 7, repo: "sources/glint"),
+            score: 10_000,
+            reasons: [],
+            sourceOrder: 0,
+            inferredProject: nil,
+            learningEligibility: .explicit
+        )
+        legacyHistory.record(
+            .init(proposal: legacyCustomRepo, basis: .explicit),
+            bundleIdentifier: "com.example.editor",
+            now: Date(timeIntervalSince1970: 1_000_000)
+        )
+        let legacyPlan = EvidenceCandidatePlanner.plan(
+            input: .init(lines: ["#42"]),
+            context: context,
+            foreground: .init(bundleIdentifier: "com.example.editor", applicationName: "Editor", windowTitle: nil),
+            history: legacyHistory,
+            now: Date(timeIntervalSince1970: 1_000_001)
+        )
+        if legacyPlan.proposals.contains(where: { $0.spec == .pullRequest(number: 42, repo: "sources/glint") }) {
+            failures.append("legacy untrusted repo history")
+        }
+
+        let duplicateInput = OCRContextInput(fragments: [
+            .init(text: "24", lineIndex: 0, order: 0),
+            .init(text: "GLINT-24", lineIndex: 1, order: 1),
+        ])
+        let duplicateTokens = TokenParser.parse(duplicateInput)
+        let explicitSourceOrder = duplicateTokens.first {
+            if case .issueKey(project: "GLINT", number: 24) = $0.kind { return true }
+            return false
+        }?.sourceOrder
+        let duplicate = EvidenceCandidatePlanner.plan(input: duplicateInput, context: context)
+        let duplicateProposal = duplicate.proposals.first { $0.spec == .issue(tracker: .ppm, key: "GLINT-24") }
+        if duplicateProposal?.sourceOrder != explicitSourceOrder { failures.append("highest-weight evidence anchor") }
+
         let bare = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context)
         if bare.proposals.count < 2 || bare.learningDecision(for: bare.proposals[0]) != nil { failures.append("bare collision learning") }
 
@@ -579,8 +652,10 @@ enum ResolverDeterministicChecks {
 
         let glintWindow = ForegroundApplicationContext(bundleIdentifier: "com.apple.Safari", applicationName: "Safari", windowTitle: "GLINT Settings")
         let falseContext = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context, foreground: glintWindow)
-        if falseContext.proposals.first?.inferredProject != "GLINT" || falseContext.proposals.first?.inferredProject == "PAI" {
-            failures.append("PAI-300 false context")
+        if falseContext.proposals.first?.inferredProject != "GLINT" ||
+            falseContext.proposals.first?.learningEligibility != .userConfirmation ||
+            falseContext.proposals.first.flatMap({ falseContext.learningDecision(for: $0) }) != nil {
+            failures.append("weak foreground context must require confirmation")
         }
         return failures
     }

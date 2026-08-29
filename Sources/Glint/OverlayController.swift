@@ -11,9 +11,9 @@ enum OverlayMetrics {
         case .detailed: primaryBase = 184
         }
         let alternatives = min(preferences.alternativePreviews, max(0, lines.count - 1))
-        let hasMoreResults = lines.count > 1
-        let rail = hasMoreResults ? 27 + CGFloat(alternatives) * (43 * preferences.textSize.scale) : 0
-        let chrome: CGFloat = sticky ? 72 : (hasMoreResults ? 45 : 22)
+        let hasVisibleAlternatives = alternatives > 0
+        let rail = hasVisibleAlternatives ? 27 + CGFloat(alternatives) * (43 * preferences.textSize.scale) : 0
+        let chrome: CGFloat = sticky ? 72 : (hasVisibleAlternatives ? 45 : 22)
         return ceil(primaryBase * preferences.textSize.scale + rail + chrome)
     }
 
@@ -21,6 +21,16 @@ enum OverlayMetrics {
         let width = min(preferences.width.points, max(360, visibleFrame.width - 24))
         let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences)
         return CGSize(width: width, height: min(preferred, max(190, visibleFrame.height - 24)))
+    }
+
+    static func previewScale(
+        contentWidth: CGFloat,
+        availableWidth: CGFloat,
+        contentHeight: CGFloat,
+        maximumHeight: CGFloat = 300
+    ) -> CGFloat {
+        guard contentWidth > 0, contentHeight > 0, availableWidth > 0, maximumHeight > 0 else { return 0 }
+        return min(1, availableWidth / contentWidth, maximumHeight / contentHeight)
     }
 }
 
@@ -141,7 +151,7 @@ struct OverlayContent: View {
     }
 
     @ViewBuilder private var alternativeResults: some View {
-        if lines.count > 1 {
+        if !alternativeIndices.isEmpty {
             HStack {
                 Text("NEXT WITH SCROLL").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
                 Spacer()
@@ -195,14 +205,19 @@ struct AppearanceCardPreview: View {
     var body: some View {
         GeometryReader { proxy in
             let actualWidth = preferences.width.points
-            let scale = min(1, max(0.68, (proxy.size.width - 4) / actualWidth))
             let height = OverlayMetrics.preferredHeight(lines: sampleLines, sticky: true, preferences: preferences)
+            let scale = OverlayMetrics.previewScale(
+                contentWidth: actualWidth,
+                availableWidth: max(1, proxy.size.width - 4),
+                contentHeight: height
+            )
             OverlayContent(lines: sampleLines, selectedIndex: 0, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height))
                 .scaleEffect(scale, anchor: .topLeading)
                 .frame(width: actualWidth * scale, height: height * scale, alignment: .topLeading)
                 .accessibilityLabel("Live ticket card preview")
         }
         .frame(height: min(300, OverlayMetrics.preferredHeight(lines: sampleLines, sticky: true, preferences: preferences)))
+        .clipped()
     }
 }
 

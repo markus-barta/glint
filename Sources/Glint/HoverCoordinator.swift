@@ -173,16 +173,31 @@ import Foundation
                 result[pair.0] = pair.1
             }
             let selectedAnchor = resolutionPlan.proposals.first.flatMap { anchorsBySourceOrder[$0.sourceOrder] }
+            guard ScanFeedbackLifecyclePolicy.permits(
+                .recognized,
+                startedGeneration: generation,
+                currentGeneration: scanGeneration
+            ) else { return }
             if appState?.activationPreferences.scanFeedbackEnabled == true {
                 scanFeedback.recognized(anchors: anchorPairs.map(\.1), selected: selectedAnchor)
             }
             let resolved = await resolver.resolve(resolutionPlan)
-            guard generation == scanGeneration else { scanFeedback.cancel(); return }
+            let terminalEvent: ScanFeedbackLifecycleEvent = resolved.isEmpty ? .noMatch : .resolved
+            guard ScanFeedbackLifecyclePolicy.permits(
+                terminalEvent,
+                startedGeneration: generation,
+                currentGeneration: scanGeneration
+            ) else { return }
             let lines = Self.presentationLines(from: resolved)
             if let first = resolved.first {
                 recordLearningIfEligible(first, in: resolutionPlan, foreground: foreground)
             }
             if appState?.activationPreferences.scanFeedbackEnabled == true {
+                guard ScanFeedbackLifecyclePolicy.permits(
+                    terminalEvent,
+                    startedGeneration: generation,
+                    currentGeneration: scanGeneration
+                ) else { return }
                 if let first = resolved.first,
                    let anchor = anchorsBySourceOrder[first.proposal.sourceOrder] ?? selectedAnchor {
                     scanFeedback.resolved(anchor: anchor)

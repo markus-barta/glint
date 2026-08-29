@@ -68,8 +68,20 @@ private enum GlintBrand {
     init() {
         let preferences = GlintPreferences.load()
         let activation = ActivationPreferences.load()
+        var presentation = PresentationPreferences.load()
+#if DEBUG
+        if CommandLine.arguments.contains("--settings-appearance-stress-probe") {
+            presentation = PresentationPreferences(
+                alternativePreviews: 5,
+                textSize: .extraLarge,
+                width: .wide,
+                density: .detailed,
+                surface: .solid
+            )
+        }
+#endif
         activationPreferences = activation
-        presentationPreferences = PresentationPreferences.load()
+        presentationPreferences = presentation
         triggerMode = activation.legacyTriggerMode
         inspectHotKey = preferences.inspectHotKey
         pinHotKey = preferences.pinHotKey
@@ -168,6 +180,8 @@ private enum GlintBrand {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 #if DEBUG
     private var probeOverlay: OverlayController?
+    private var probeScanFeedback: [ScanFeedbackController] = []
+    private var probeScanBackdrop: NSWindow?
 #endif
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--self-test") { SelfTests.runAndExit() }
@@ -191,6 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 #endif
         NSApp.setActivationPolicy(.accessory)
 #if DEBUG
+        if CommandLine.arguments.contains("--scan-feedback-probe") {
+            Task { @MainActor [weak self] in self?.showScanFeedbackProbe() }
+        }
         if CommandLine.arguments.contains("--overlay-probe") {
             let overlay = OverlayController(allowsCapture: true)
             overlay.show([
@@ -203,7 +220,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 #endif
     }
+
+#if DEBUG
+    @MainActor
+    private func showScanFeedbackProbe() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let size = CGSize(width: min(860, screen.visibleFrame.width - 40), height: 260)
+        let frame = CGRect(
+            x: screen.visibleFrame.midX - size.width / 2,
+            y: screen.visibleFrame.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        let backdrop = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        backdrop.level = .floating
+        backdrop.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        backdrop.isOpaque = true
+        backdrop.backgroundColor = .windowBackgroundColor
+        backdrop.hasShadow = true
+        backdrop.sharingType = .readOnly
+        backdrop.contentView = NSHostingView(rootView: ScanFeedbackProbeBackdrop())
+        backdrop.orderFrontRegardless()
+        probeScanBackdrop = backdrop
+
+        let centerY = frame.minY + 50
+        let invoked = ScanFeedbackController(allowsCapture: true)
+        invoked.showDebugInvoked(at: CGPoint(x: frame.minX + frame.width / 6, y: centerY))
+
+        let recognized = ScanFeedbackController(allowsCapture: true)
+        let recognizedPrimary = ScanFeedbackAnchor(
+            literal: "GLINT-19",
+            bounds: CGRect(x: frame.midX - 94, y: centerY - 10, width: 82, height: 22)
+        )
+        let recognizedAlternate = ScanFeedbackAnchor(
+            literal: "#184",
+            bounds: CGRect(x: frame.midX + 24, y: centerY - 10, width: 52, height: 22)
+        )
+        recognized.showDebugRecognized(
+            anchors: [recognizedPrimary, recognizedAlternate],
+            selected: recognizedPrimary
+        )
+
+        let resolved = ScanFeedbackController(allowsCapture: true)
+        resolved.showDebugResolved(anchor: ScanFeedbackAnchor(
+            literal: "GLINT-19",
+            bounds: CGRect(x: frame.maxX - frame.width / 6 - 42, y: centerY - 10, width: 84, height: 22)
+        ))
+        probeScanFeedback = [invoked, recognized, resolved]
+    }
+#endif
 }
+
+#if DEBUG
+private struct ScanFeedbackProbeBackdrop: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                phase("1", "INVOKED", "Immediate acknowledgement")
+                Divider().padding(.vertical, 22)
+                phase("2", "RECOGNIZED", "Candidate anchors")
+                Divider().padding(.vertical, 22)
+                phase("3", "RESOLVED", "Confirmed ticket")
+            }
+            Spacer(minLength: 0)
+            Text("DEBUG VISUAL PROBE · release scan feedback remains capture-excluded")
+                .font(.caption2.monospaced().weight(.medium))
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 14)
+        }
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.18)))
+        .padding(8)
+    }
+
+    private func phase(_ number: String, _ title: String, _ subtitle: String) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 7) {
+                Text(number)
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .frame(width: 20, height: 20)
+                    .background(Color.accentColor.opacity(0.15), in: Circle())
+                Text(title).font(.caption.weight(.bold)).tracking(0.6)
+            }
+            Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+    }
+}
+#endif
 
 private final class ShortcutRecorderButton: NSButton {
     var hotKey: HotKey?

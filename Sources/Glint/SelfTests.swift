@@ -160,6 +160,14 @@ enum SelfTests {
             fputs("self-test failed: off/dwell invocation policy\n", stderr)
             exit(1)
         }
+        guard ScanFeedbackLifecycleEvent.allCases.allSatisfy({
+            ScanFeedbackLifecyclePolicy.permits($0, startedGeneration: 7, currentGeneration: 7)
+        }), ScanFeedbackLifecycleEvent.allCases.allSatisfy({
+            !ScanFeedbackLifecyclePolicy.permits($0, startedGeneration: 7, currentGeneration: 8)
+        }) else {
+            fputs("self-test failed: stale scan feedback lifecycle gate\n", stderr)
+            exit(1)
+        }
         var holdActivation = activation
         holdActivation.mode = .hold
         guard !HoverInvocationPolicy.shouldTrigger(
@@ -196,6 +204,42 @@ enum SelfTests {
         guard PresentationPreferences.load(defaults: defaults) == presentation,
               presentation.circularAlternativeIndices(count: 4, selectedIndex: 3) == [0, 1, 2] else {
             fputs("self-test failed: ticket appearance persistence/navigation\n", stderr)
+            exit(1)
+        }
+        let previewLines = (1...6).map {
+            GlintLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")
+        }
+        let previewHeight = OverlayMetrics.preferredHeight(lines: previewLines, sticky: true, preferences: presentation)
+        let previewScale = OverlayMetrics.previewScale(
+            contentWidth: presentation.width.points,
+            availableWidth: 556,
+            contentHeight: previewHeight,
+            maximumHeight: 300
+        )
+        var noAlternatives = presentation
+        noAlternatives.alternativePreviews = 0
+        guard presentation.width.points * previewScale <= 556.001,
+              previewHeight * previewScale <= 300.001,
+              previewScale > 0,
+              noAlternatives.circularAlternativeIndices(count: 6, selectedIndex: 0).isEmpty,
+              OverlayMetrics.preferredHeight(lines: previewLines, sticky: true, preferences: noAlternatives) < previewHeight else {
+            fputs("self-test failed: bounded XL appearance preview\n", stderr)
+            exit(1)
+        }
+        let feedbackScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        guard ScanFeedbackGeometry.panelFrame(
+            around: CGRect(x: 200, y: 300, width: 80, height: 20),
+            lastPoint: .zero,
+            screenFrames: [],
+            mainScreenFrame: nil
+        ) == nil,
+        let clampedFeedbackFrame = ScanFeedbackGeometry.panelFrame(
+            around: CGRect(x: 9_000, y: 9_000, width: 80, height: 20),
+            lastPoint: .zero,
+            screenFrames: [feedbackScreen],
+            mainScreenFrame: feedbackScreen
+        ), feedbackScreen.intersects(clampedFeedbackFrame), !clampedFeedbackFrame.isEmpty else {
+            fputs("self-test failed: safe scan-feedback screen fallback\n", stderr)
             exit(1)
         }
         let anchorBounds = CGRect(x: 120, y: 340, width: 72, height: 18)
