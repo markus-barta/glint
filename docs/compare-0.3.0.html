@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GLINT 0.3.0 visual QA</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; background: #0b0d12; color: #f4f7ff; }
+    main { max-width: 1500px; margin: auto; padding: 44px 28px 72px; }
+    h1 { margin: 0; font-size: clamp(32px, 5vw, 58px); letter-spacing: -0.04em; }
+    .lede { max-width: 880px; color: #aeb7c9; font-size: 18px; line-height: 1.5; }
+    .tickets { display: flex; flex-wrap: wrap; gap: 9px; margin: 24px 0 38px; }
+    .ticket { padding: 7px 11px; border: 1px solid #2e3b55; border-radius: 999px; color: #a9c8ff; background: #101725; font: 600 13px ui-monospace, monospace; }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+    article { border: 1px solid #242b39; border-radius: 18px; background: #12151c; overflow: hidden; }
+    article header { padding: 17px 19px; border-bottom: 1px solid #242b39; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    .caption { color: #8f99ab; font-size: 14px; }
+    img { display: block; width: 100%; height: auto; background: black; }
+    .full { margin-top: 22px; }
+    .full img { max-height: 820px; object-fit: contain; }
+    .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+    .check { padding: 16px; border-radius: 12px; background: #101725; border: 1px solid #24334d; }
+    .check strong { display: block; margin-bottom: 5px; }
+    .check span { color: #9ca9bd; line-height: 1.45; }
+    @media (max-width: 900px) { .comparison, .checks { grid-template-columns: 1fr; } main { padding-inline: 16px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>GLINT 0.3.0 visual QA</h1>
+  <p class="lede">A before/after review of activation settings and the ticket-card system. The new hierarchy makes the one-shot shortcut primary, moves optional hover behavior beside it, and makes every card choice visible before it changes the live overlay.</p>
+  <div class="tickets">
+    <span class="ticket">GLINT-19 scan feedback</span>
+    <span class="ticket">GLINT-20 smart resolution</span>
+    <span class="ticket">GLINT-21 activation UX</span>
+    <span class="ticket">GLINT-22 card appearance</span>
+  </div>
+
+  <section class="comparison">
+    <article>
+      <header><h2>Before · 0.2.2 General</h2><div class="caption">Automatic reading leads; the one-shot Inspect command lives on a separate pane, with no card customization.</div></header>
+      <img src="screenshots/settings-before-0.3.0.png" alt="GLINT 0.2.2 settings before the redesign">
+    </article>
+    <article>
+      <header><h2>After · Scanning</h2><div class="caption">Inspect is always one scan; hover activation is optional and contextual.</div></header>
+      <img src="screenshots/settings-scanning-0.3.0.png" alt="GLINT 0.3.0 Scanning settings">
+    </article>
+  </section>
+
+  <article class="full">
+    <header><h2>After · Scan feedback lifecycle</h2><div class="caption">The DEBUG-only capture seam renders the actual invoked, recognized, and resolved phases together. Release panels remain capture-excluded.</div></header>
+    <img src="screenshots/scan-feedback-0.3.0.png" alt="GLINT scan feedback invoked, recognized, and resolved states">
+  </article>
+
+  <article class="full">
+    <header><h2>After · Appearance</h2><div class="caption">A live card preview with alternative count, text size, width, density, and surface controls.</div></header>
+    <img src="screenshots/settings-appearance-0.3.0.png" alt="GLINT 0.3.0 Appearance settings with live preview">
+  </article>
+
+  <article class="full">
+    <header><h2>After · Pinned card</h2><div class="caption">A prominent primary result plus visible wheel destinations and compact navigation guidance.</div></header>
+    <img src="screenshots/pinned-card-0.3.0.png" alt="GLINT 0.3.0 pinned ticket card">
+  </article>
+
+  <section class="checks">
+    <div class="check"><strong>Activation is legible</strong><span>One-shot Inspect and optional hover scanning no longer compete for the same mental model.</span></div>
+    <div class="check"><strong>Customization is previewed</strong><span>Every visual preference updates sample data locally before affecting real cards.</span></div>
+    <div class="check"><strong>Alternatives are discoverable</strong><span>Upcoming results are visible as rows before the user reaches for the wheel.</span></div>
+    <div class="check"><strong>Privacy remains explicit</strong><span>Visual feedback is capture-excluded; bundle-ID keyed learned context is disclosed and can be forgotten with cached titles.</span></div>
+  </section>
+</main>
+</body>
+</html>

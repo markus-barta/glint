@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-29
+
+- Add anchored scan feedback, evidence-ranked ticket resolution, unified activation controls, and customizable ticket cards.
+
 ## [0.2.2] - 2026-08-29
 
 - Redesign Settings into clear General, Shortcuts, and Privacy panes with polished native controls.

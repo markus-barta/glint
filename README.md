@@ -15,18 +15,26 @@
 
 ---
 
-GLINT watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your local Paimos and GitHub sessions. The strongest result gets a detailed card—key, state, title, metadata, and description excerpt—while the remaining hits form a small card deck you can browse without leaving the app you are using.
+GLINT watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your local Paimos and GitHub sessions. The strongest result gets a detailed card—key, state, title, metadata, and description excerpt—while the next likely matches remain visible as compact rows before you scroll to them.
 
 No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to a model.
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/pinned-navigator.png" width="760" alt="GLINT pinned ticket navigator showing a detailed ticket card and navigation controls">
+  <img src="docs/screenshots/pinned-card-0.3.0.png" width="760" alt="GLINT pinned ticket card with a prominent primary result and visible scroll alternatives">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings.png" width="720" alt="GLINT Settings with a clear General, Shortcuts, and Privacy sidebar and native global shortcut recorders">
+  <img src="docs/screenshots/settings-scanning-0.3.0.png" width="720" alt="GLINT Scanning settings with a one-shot Inspect shortcut and optional hover activation">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-appearance-0.3.0.png" width="720" alt="GLINT Appearance settings with a live ticket-card preview and visual controls">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/scan-feedback-0.3.0.png" width="760" alt="GLINT scan feedback states: invoked, recognized, and resolved">
 </p>
 
 ## How it feels
@@ -38,6 +46,8 @@ GLINT has two configurable global commands:
 
 Both shortcuts use native recorder controls in Settings, reject unsafe plain-letter globals, detect conflicts, and can be cleared or reset.
 
+The Inspect command always performs exactly one scan. Optional hands-free activation can be turned off, delayed by a configurable dwell, limited to any chosen modifier-key combination, or run continuously at a calm, balanced, or fast cadence. A small capture-excluded cue marks the pointer immediately, outlines recognized IDs, and confirms the selected ticket; Reduce Motion replaces animated transitions with restrained fades.
+
 When pinned, GLINT becomes a compact ticket navigator:
 
 - Drag its top handle to a fixed place on the current display; GLINT remembers and safely clamps that position when displays change.
@@ -48,9 +58,13 @@ When pinned, GLINT becomes a compact ticket navigator:
 
 Typing is captured only while the pinned panel is focused. Ordinary scrolling elsewhere on the Mac is never intercepted.
 
+Appearance settings update a local sample card immediately. You can show zero to five upcoming scroll destinations and choose the card's text size, width, content density, and system or solid surface.
+
 ## Resolution model
 
-Explicit keys take the narrowest route. Known PPM projects (`GLINT`, `HAUSV`, `INSPR`, `JANUS`, `PAI`, and `PHAROS`) resolve through the `ppm` Paimos instance; `START` resolves through `pma`. Unknown project keys can try both. Bare numbers start with the last successful tracker and project, then try the alternate context and, where mapped, a GitHub pull request.
+Explicit keys take the narrowest route. Known PPM projects (`GLINT`, `HAUSV`, `INSPR`, `JANUS`, `PAI`, and `PHAROS`) resolve through the `ppm` Paimos instance; `START` resolves through `pma`. Unknown project keys can try both. For ambiguous numbers, GLINT ranks nearby project names, explicit GitHub URLs, foreground app/window context, the pinned card, and short-lived per-app history. Explicit evidence always outranks weak context, and weak guesses are never learned automatically.
+
+GitHub lookups are restricted to configured project repositories or a repository extracted from an explicit `github.com` URL. Ordinary slash text, paths, and dates seen by OCR never become network lookup targets.
 
 Failures stay invisible: GLINT never invents a synthetic “maybe” row. Successful results are cached briefly for responsiveness, with misses cached for only one minute.
 
@@ -61,7 +75,9 @@ The screen crop and Apple Vision OCR stay in process. GLINT launches only local,
 - `paimos --instance <ppm|pma> --json issue get <key>`
 - `gh pr view … --json …` for mapped pull-request candidates
 
-Those tools may contact their configured services under your existing credentials. GLINT does not write to either service, does not add telemetry, and does not call an LLM. macOS Screen Recording permission is required solely for the small cursor-adjacent capture.
+Those tools may contact their configured services under your existing credentials. GLINT does not write to either service, does not add telemetry, and does not call an LLM. macOS Screen Recording permission is required for the small cursor-adjacent capture; GLINT also reads the foreground app identity and, when available under that permission, its visible window title to disambiguate otherwise identical ticket numbers.
+
+GLINT stores only a bounded, decaying resolution hint keyed by application bundle identifier so a recent confirmed project can improve the next ambiguous match. It never stores screen pixels or raw OCR text. Scan-feedback panels explicitly opt out of screen capture.
 
 ## Build and run
 
@@ -74,7 +90,7 @@ swift build
 open dist/Glint.app
 ```
 
-Grant Screen Recording from GLINT's menu when macOS asks. The default scan trigger is a 300 ms dwell; Settings can also switch scanning to Hold Option or Always follow.
+Grant Screen Recording from GLINT's menu when macOS asks. Inspect always performs one scan; optional hover activation defaults to a 300 ms dwell and can be disabled or changed in Settings.
 
 The packaging script stages `dist/Glint.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so the Screen Recording grant survives rebuilds without a paid signing identity.
 
