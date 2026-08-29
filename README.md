@@ -26,7 +26,7 @@ No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are s
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings.png" width="520" alt="GLINT Settings with automatic reading, global shortcut recorders, navigator guidance, and privacy status">
+  <img src="docs/screenshots/settings.png" width="720" alt="GLINT Settings with a clear General, Shortcuts, and Privacy sidebar and native global shortcut recorders">
 </p>
 
 ## How it feels

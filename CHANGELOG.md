@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-29
+
+- Redesign Settings into clear General, Shortcuts, and Privacy panes with polished native controls.
+
 ## [0.2.1] - 2026-08-28
 
 - Harden pinned focus and add navigator state regression coverage
