@@ -1,15 +1,36 @@
 import AppKit
 import SwiftUI
 
+struct ScanFeedbackAnchorID: Hashable, Sendable {
+    let literal: String
+    let minX: Int
+    let minY: Int
+    let width: Int
+    let height: Int
+
+    init(literal: String, bounds: CGRect) {
+        self.literal = literal
+        minX = Self.quantized(bounds.minX)
+        minY = Self.quantized(bounds.minY)
+        width = Self.quantized(bounds.width)
+        height = Self.quantized(bounds.height)
+    }
+
+    private static func quantized(_ value: CGFloat) -> Int {
+        guard value.isFinite else { return 0 }
+        return Int((value * 2).rounded())
+    }
+}
+
 struct ScanFeedbackAnchor: Hashable, Identifiable, Sendable {
-    let id: UUID
+    let id: ScanFeedbackAnchorID
     let literal: String
     let bounds: CGRect
 
-    init(id: UUID = UUID(), literal: String, bounds: CGRect) {
-        self.id = id
+    init(literal: String, bounds: CGRect) {
         self.literal = literal
         self.bounds = bounds.standardized
+        id = ScanFeedbackAnchorID(literal: literal, bounds: self.bounds)
     }
 
     /// Maps the parser's stable source order back to the exact Vision span.
@@ -26,9 +47,9 @@ struct ScanFeedbackAnchor: Hashable, Identifiable, Sendable {
     }
 }
 
-private enum ScanFeedbackPhase: Equatable {
+enum ScanFeedbackPhase: Equatable {
     case invoked(point: CGPoint)
-    case recognized(anchors: [ScanFeedbackAnchor], selectedID: UUID?)
+    case recognized(anchors: [ScanFeedbackAnchor], selectedID: ScanFeedbackAnchorID?)
     case resolved(anchor: ScanFeedbackAnchor)
     case noMatch(point: CGPoint)
 }
@@ -73,6 +94,45 @@ enum ScanFeedbackGeometry {
 enum ScanFeedbackDisappearancePolicy {
     static func shouldExpire(scheduledGeneration: Int, currentGeneration: Int) -> Bool {
         scheduledGeneration == currentGeneration
+    }
+}
+
+enum ScanFeedbackPresentationAction: Equatable {
+    case refreshExpiry
+    case rebuild
+}
+
+struct ScanFeedbackPresentationDecision: Equatable {
+    let action: ScanFeedbackPresentationAction
+    let generation: Int
+}
+
+enum ScanFeedbackPresentationPolicy {
+    static func decision(
+        current: ScanFeedbackPhase?,
+        incoming: ScanFeedbackPhase,
+        generation: Int
+    ) -> ScanFeedbackPresentationDecision {
+        ScanFeedbackPresentationDecision(
+            action: representsSamePresentation(current, incoming) ? .refreshExpiry : .rebuild,
+            generation: generation &+ 1
+        )
+    }
+
+    private static func representsSamePresentation(
+        _ current: ScanFeedbackPhase?,
+        _ incoming: ScanFeedbackPhase
+    ) -> Bool {
+        switch (current, incoming) {
+        case let (.invoked(lhs)?, .invoked(rhs)), let (.noMatch(lhs)?, .noMatch(rhs)):
+            return lhs == rhs
+        case let (.recognized(lhsAnchors, lhsSelected)?, .recognized(rhsAnchors, rhsSelected)):
+            return lhsAnchors.map(\.id) == rhsAnchors.map(\.id) && lhsSelected == rhsSelected
+        case let (.resolved(lhs)?, .resolved(rhs)):
+            return lhs.id == rhs.id
+        default:
+            return false
+        }
     }
 }
 
@@ -289,8 +349,17 @@ final class ScanFeedbackController {
 
     private func present(_ phase: ScanFeedbackPhase, around contentBounds: CGRect, lifetime: TimeInterval) {
         disappearanceTask?.cancel()
-        presentationGeneration += 1
-        let generation = presentationGeneration
+        let decision = ScanFeedbackPresentationPolicy.decision(
+            current: self.phase,
+            incoming: phase,
+            generation: presentationGeneration
+        )
+        presentationGeneration = decision.generation
+        let generation = decision.generation
+        if decision.action == .refreshExpiry {
+            scheduleDisappearance(after: lifetime, generation: generation)
+            return
+        }
         self.phase = phase
         guard let frame = panelFrame(around: contentBounds) else {
             cancel()
@@ -351,11 +420,8 @@ final class ScanFeedbackController {
     }
 
     private func deduplicated(_ anchors: [ScanFeedbackAnchor]) -> [ScanFeedbackAnchor] {
-        var seen = Set<String>()
-        return anchors.filter { anchor in
-            let key = "\(anchor.literal.lowercased())|\(Int(anchor.bounds.midX.rounded()))|\(Int(anchor.bounds.midY.rounded()))"
-            return seen.insert(key).inserted
-        }
+        var seen = Set<ScanFeedbackAnchorID>()
+        return anchors.filter { seen.insert($0.id).inserted }
     }
 
 #if DEBUG

@@ -56,13 +56,6 @@ enum ScanAnchorPolicy {
 
 enum ScanTerminalFeedback: Equatable { case resolved, noMatch, none }
 
-enum ScanTerminalFeedbackPolicy {
-    static func event(hasResolvedResult: Bool, hasAnchor: Bool) -> ScanTerminalFeedback {
-        if !hasResolvedResult { return .noMatch }
-        return hasAnchor ? .resolved : .none
-    }
-}
-
 enum ResolutionLookupPolicy {
     static let maximumConcurrentLookups = 4
 

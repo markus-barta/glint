@@ -269,7 +269,8 @@ struct AppearanceCardPreview: View {
         GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
         GlintLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "gh"),
         GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
-        GlintLine(key: "GLINT-19", state: "open", title: "Add scan feedback", source: "ppm")
+        GlintLine(key: "GLINT-19", state: "open", title: "Add scan feedback", source: "ppm"),
+        GlintLine(key: "GLINT-18", state: "open", title: "Polish privacy controls", source: "ppm")
     ]
 
     var body: some View {

@@ -186,6 +186,14 @@ enum SelfTests {
             fputs("self-test failed: corrupt activation mode fallback\n", stderr); exit(1)
         }
         corruptDefaults.removePersistentDomain(forName: corruptSuite)
+        let defaultHoldModifiers = ActivationPreferences.defaults.holdModifiers
+        guard ActivationPreferences.sanitizedHoldModifiers("corrupt") == defaultHoldModifiers,
+              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: -1)) == defaultHoldModifiers,
+              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: UInt64(UInt32.max) + 1)) == defaultHoldModifiers,
+              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: UInt32.max)) == defaultHoldModifiers,
+              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: HotKeyModifiers.control.rawValue | HotKeyModifiers.shift.rawValue)) == [.control, .shift] else {
+            fputs("self-test failed: sanitized hold modifiers\n", stderr); exit(1)
+        }
         guard !HoverInvocationPolicy.shouldTrigger(
             preferences: .init(mode: .off, dwellMilliseconds: 300, holdModifiers: [.option], responsiveness: .balanced, scanFeedbackEnabled: true),
             stableDuration: 10, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 10
@@ -231,6 +239,53 @@ enum SelfTests {
               ScanFeedbackTiming.recognizedLifetime > ScanFeedbackTiming.resolvedLifetime else {
             fputs("self-test failed: scan feedback expiry generation\n", stderr); exit(1)
         }
+        let stableAnchor = ScanFeedbackAnchor(
+            literal: "GLINT-24",
+            bounds: CGRect(x: 120.1, y: 340.1, width: 72.1, height: 18.1)
+        )
+        let reconstructedAnchor = ScanFeedbackAnchor(
+            literal: "GLINT-24",
+            bounds: CGRect(x: 120.2, y: 340.2, width: 72.2, height: 18.2)
+        )
+        let changedAnchor = ScanFeedbackAnchor(
+            literal: "GLINT-25",
+            bounds: CGRect(x: 120.1, y: 340.1, width: 72.1, height: 18.1)
+        )
+        let recognizedPhase = ScanFeedbackPhase.recognized(
+            anchors: [stableAnchor], selectedID: stableAnchor.id
+        )
+        let repeatedRecognized = ScanFeedbackPhase.recognized(
+            anchors: [reconstructedAnchor], selectedID: reconstructedAnchor.id
+        )
+        let recognizedDecision = ScanFeedbackPresentationPolicy.decision(
+            current: recognizedPhase, incoming: repeatedRecognized, generation: 20
+        )
+        let resolvedPhase = ScanFeedbackPhase.resolved(anchor: stableAnchor)
+        let resolvedDecision = ScanFeedbackPresentationPolicy.decision(
+            current: resolvedPhase,
+            incoming: .resolved(anchor: reconstructedAnchor),
+            generation: recognizedDecision.generation
+        )
+        let changedDecision = ScanFeedbackPresentationPolicy.decision(
+            current: resolvedPhase,
+            incoming: .resolved(anchor: changedAnchor),
+            generation: resolvedDecision.generation
+        )
+        guard stableAnchor.id == reconstructedAnchor.id,
+              stableAnchor.id != changedAnchor.id,
+              recognizedDecision == .init(action: .refreshExpiry, generation: 21),
+              resolvedDecision == .init(action: .refreshExpiry, generation: 22),
+              changedDecision == .init(action: .rebuild, generation: 23),
+              ScanFeedbackDisappearancePolicy.shouldExpire(
+                scheduledGeneration: resolvedDecision.generation,
+                currentGeneration: resolvedDecision.generation
+              ),
+              !ScanFeedbackDisappearancePolicy.shouldExpire(
+                scheduledGeneration: recognizedDecision.generation,
+                currentGeneration: resolvedDecision.generation
+              ) else {
+            fputs("self-test failed: idempotent scan feedback presentation\n", stderr); exit(1)
+        }
         var holdActivation = activation
         holdActivation.mode = .hold
         guard !HoverInvocationPolicy.shouldTrigger(
@@ -271,11 +326,6 @@ enum SelfTests {
               !ResolutionLookupPolicy.shouldLaunchNext(launched: 4, total: 16, resolvedCount: 12, maximumResults: 12),
               !ResolutionLookupPolicy.shouldLaunchNext(launched: 16, total: 16, resolvedCount: 0, maximumResults: 12) else {
             fputs("self-test failed: bounded lookup scheduling policy\n", stderr); exit(1)
-        }
-        guard ScanTerminalFeedbackPolicy.event(hasResolvedResult: false, hasAnchor: false) == .noMatch,
-              ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: true) == .resolved,
-              ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: false) == .none else {
-            fputs("self-test failed: terminal scan feedback policy\n", stderr); exit(1)
         }
         let directPlan = DirectEntryResolutionPlanner.plan(
             project: "GLINT", key: "GLINT-42", trackers: [.ppm, .pma]
@@ -383,6 +433,16 @@ enum SelfTests {
               ScanFeedbackAnchor(token: anchorToken, fragments: [fragment])?.bounds == anchorBounds else {
             fputs("self-test failed: token-anchored scan feedback\n", stderr)
             exit(1)
+        }
+        let collapsedLineRelationship = OCRVisualLayout.relationship(
+            firstRegion: .init(x: 0.1, y: 0.8, width: 0.2, height: 0.05),
+            firstLine: 4,
+            secondRegion: .init(x: 0.1, y: 0.4, width: 0.2, height: 0.05),
+            secondLine: 4
+        )
+        guard !collapsedLineRelationship.isSameVisualLine,
+              collapsedLineRelationship.lineGap == 1 else {
+            fputs("self-test failed: collapsed OCR line relationship\n", stderr); exit(1)
         }
         let denseInput = OCRContextInput(lines: [
             "Release 0.3.0 build 2026 08 29 GLINT-19 #184 PAI-843 999 1000"

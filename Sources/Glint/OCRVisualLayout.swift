@@ -105,7 +105,11 @@ enum OCRVisualLayout {
         else if second.maxX < first.minX { horizontalGap = first.minX - second.maxX }
         else { horizontalGap = 0 }
         return OCRVisualRelationship(
-            lineGap: sameLine ? 0 : lineGap,
+            // Geometry is authoritative when available. If legacy OCR line
+            // indices collapse distinct visual rows onto the same number,
+            // treat them as adjacent instead of scoring them below rows that
+            // were correctly numbered one or two lines apart.
+            lineGap: sameLine ? 0 : max(1, lineGap),
             isSameVisualLine: sameLine,
             horizontalGap: horizontalGap,
             centerDistance: hypot(first.midX - second.midX, first.midY - second.midY)
