@@ -57,7 +57,8 @@ struct CandidateProposal: Hashable, Sendable {
     var provenanceSummary: String {
         reasons.sorted {
             if $0.weight != $1.weight { return $0.weight > $1.weight }
-            return $0.code < $1.code
+            if $0.code != $1.code { return $0.code < $1.code }
+            return $0.label < $1.label
         }.map(\.label).joined(separator: " · ")
     }
 }
@@ -208,12 +209,19 @@ enum EvidenceCandidatePlanner {
         pattern: #"\b(?:PR|pull[ -]?request)\b"#,
         options: [.caseInsensitive]
     )
+    private static let projectContextLanguageRegex = try! NSRegularExpression(
+        pattern: #"\b(?:issue|ticket|project)\b"#,
+        options: [.caseInsensitive]
+    )
+    private static let ambiguousStandaloneProjectTerms: Set<String> = ["start", "inspire"]
 
     private struct ProjectMention: Hashable {
         let project: ProjectDescriptor
         let fragmentIndex: Int
         let lineIndex: Int
         let characterOffset: Int
+        let region: OCRNormalizedRegion?
+        let isAmbiguousStandaloneTerm: Bool
     }
 
     private struct RepoMention: Hashable {
@@ -221,6 +229,7 @@ enum EvidenceCandidatePlanner {
         let fragmentIndex: Int
         let lineIndex: Int
         let characterOffset: Int
+        let region: OCRNormalizedRegion?
         let pullRequestNumber: Int?
         let isGitHubURL: Bool
     }
@@ -244,11 +253,13 @@ enum EvidenceCandidatePlanner {
         now: Date = Date(),
         maximumCandidates: Int = ResolutionPlan.maximumCandidates
     ) -> ResolutionPlan {
-        let tokens = Array(TokenParser.parse(input).prefix(12))
+        let visualInput = OCRVisualLayout.arranged(input)
+        let tokens = Array(TokenParser.parse(visualInput).prefix(12))
         guard !tokens.isEmpty else { return ResolutionPlan(proposals: []) }
-        let projectMentions = findProjectMentions(in: input)
-        let repoMentions = findRepoMentions(in: input)
-        let prLanguageLines = linesMatching(pullRequestLanguageRegex, in: input)
+        let projectMentions = findProjectMentions(in: visualInput)
+        let repoMentions = findRepoMentions(in: visualInput)
+        let prLanguageLines = linesMatching(pullRequestLanguageRegex, in: visualInput)
+        let projectContextLines = linesMatching(projectContextLanguageRegex, in: visualInput)
         let foregroundText = [foreground?.bundleIdentifier, foreground?.applicationName, foreground?.windowTitle]
             .compactMap { $0 }.joined(separator: " ")
         let foregroundProjects = projectsMentioned(in: foregroundText)
@@ -264,8 +275,16 @@ enum EvidenceCandidatePlanner {
             eligibility: ResolutionLearningEligibility
         ) {
             if var existing = drafts[spec] {
-                existing.score += reason.weight
-                if !existing.reasons.contains(where: { $0.code == reason.code && $0.label == reason.label }) {
+                if let reasonIndex = existing.reasons.firstIndex(where: { $0.code == reason.code && $0.label == reason.label }) {
+                    let previous = existing.reasons[reasonIndex]
+                    // Repeated OCR observations are corroboration, not independent evidence.
+                    // Keep only the strongest occurrence so score and provenance tell the same story.
+                    if reason.weight > previous.weight {
+                        existing.score += reason.weight - previous.weight
+                        existing.reasons[reasonIndex] = reason
+                    }
+                } else {
+                    existing.score += reason.weight
                     existing.reasons.append(reason)
                 }
                 // The visible anchor must point at the evidence that actually
@@ -310,28 +329,32 @@ enum EvidenceCandidatePlanner {
             case let .hashNumber(number), let .bareNumber(number):
                 let isHash: Bool
                 if case .hashNumber = token.kind { isHash = true } else { isHash = false }
-                let nearbyProjects = scoreProjects(near: token, mentions: projectMentions)
+                let nearbyProjects = scoreProjects(
+                    near: token,
+                    mentions: projectMentions,
+                    corroboratingLines: projectContextLines
+                )
                 let nearbyRepos = scoreRepos(near: token, mentions: repoMentions)
                 let hasNearbyPRLanguage = prLanguageLines.contains(where: { abs($0 - token.lineIndex) <= 1 })
 
-                for (mention, weight) in nearbyProjects {
+                for (mention, weight, isStrong) in nearbyProjects {
                     let key = "\(mention.project.key)-\(number)"
                     add(
                         .issue(tracker: mention.project.tracker, key: key), token: token, project: mention.project.key,
                         reason: ResolutionReason(
                             code: "nearby-project", label: "near \(mention.project.key)", weight: weight,
-                            strength: weight >= 900 ? .strong : .weak
+                            strength: isStrong ? .strong : .weak
                         ),
-                        eligibility: weight >= 900 ? .strongContext : .userConfirmation
+                        eligibility: isStrong ? .strongContext : .userConfirmation
                     )
                     if let repo = CandidatePlanner.repo(for: mention.project.key) {
                         add(
                             .pullRequest(number: number, repo: repo), token: token, project: mention.project.key,
                             reason: ResolutionReason(
                                 code: "project-repo", label: "\(mention.project.key) repository", weight: isHash ? weight + 350 : max(20, weight - 450),
-                                strength: isHash && weight >= 900 ? .strong : .weak
+                                strength: isHash && isStrong ? .strong : .weak
                             ),
-                            eligibility: isHash && weight >= 900 ? .strongContext : .userConfirmation
+                            eligibility: isHash && isStrong ? .strongContext : .userConfirmation
                         )
                     }
                 }
@@ -475,10 +498,19 @@ enum EvidenceCandidatePlanner {
         input.fragments.enumerated().flatMap { fragmentIndex, fragment in
             ProjectDescriptor.known.compactMap { project in
                 let terms = [project.key, project.name] + project.aliases
-                guard let offset = terms.compactMap({ wordOffset(of: $0, in: fragment.text) }).min() else { return nil }
+                let matches = terms.compactMap { term -> (term: String, offset: Int, ambiguous: Bool)? in
+                    guard let offset = wordOffset(of: term, in: fragment.text) else { return nil }
+                    return (term, offset, ambiguousStandaloneProjectTerms.contains(term.lowercased()))
+                }
+                guard let match = matches.sorted(by: {
+                    if $0.ambiguous != $1.ambiguous { return !$0.ambiguous }
+                    if $0.term.count != $1.term.count { return $0.term.count > $1.term.count }
+                    return $0.offset < $1.offset
+                }).first else { return nil }
                 return ProjectMention(
                     project: project, fragmentIndex: fragmentIndex,
-                    lineIndex: fragment.lineIndex, characterOffset: offset
+                    lineIndex: fragment.lineIndex, characterOffset: match.offset,
+                    region: fragment.region, isAmbiguousStandaloneTerm: match.ambiguous
                 )
             }
         }
@@ -491,7 +523,7 @@ enum EvidenceCandidatePlanner {
             for match in githubURLRegex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
                 let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))"
                 let number = match.range(at: 3).location == NSNotFound ? nil : Int(ns.substring(with: match.range(at: 3)))
-                mentions.append(.init(repo: repo.lowercased(), fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: number, isGitHubURL: true))
+                mentions.append(.init(repo: repo.lowercased(), fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, region: fragment.region, pullRequestNumber: number, isGitHubURL: true))
             }
             for match in repoSlugRegex.matches(in: fragment.text, range: NSRange(location: 0, length: ns.length)) {
                 let repo = "\(ns.substring(with: match.range(at: 1)))/\(ns.substring(with: match.range(at: 2)))".lowercased()
@@ -499,22 +531,38 @@ enum EvidenceCandidatePlanner {
                 // date, or prose such as “and/or”. Only canonical repos
                 // are trusted without explicit github.com URL evidence.
                 guard !repo.hasPrefix("github.com/"), canonicalRepos.contains(repo) else { continue }
-                mentions.append(.init(repo: repo, fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, pullRequestNumber: nil, isGitHubURL: false))
+                mentions.append(.init(repo: repo, fragmentIndex: fragmentIndex, lineIndex: fragment.lineIndex, characterOffset: match.range.location, region: fragment.region, pullRequestNumber: nil, isGitHubURL: false))
             }
             return mentions
         }
     }
 
-    private static func scoreProjects(near token: NearbyToken, mentions: [ProjectMention]) -> [(ProjectMention, Int)] {
+    private static func scoreProjects(
+        near token: NearbyToken,
+        mentions: [ProjectMention],
+        corroboratingLines: Set<Int>
+    ) -> [(ProjectMention, Int, Bool)] {
         mentions.map { mention in
-            let lineDistance = abs(mention.lineIndex - token.lineIndex)
-            let weight: Int
-            if lineDistance == 0 {
-                weight = max(900, 1_450 - abs(mention.characterOffset - token.characterOffset) * 4)
-            } else if lineDistance == 1 { weight = 820 }
-            else if lineDistance == 2 { weight = 480 }
-            else { weight = max(80, 280 - lineDistance * 40) }
-            return (mention, weight)
+            let relationship = OCRVisualLayout.relationship(
+                firstRegion: token.region,
+                firstLine: token.lineIndex,
+                secondRegion: mention.region,
+                secondLine: mention.lineIndex
+            )
+            var weight: Int
+            if relationship.isSameVisualLine {
+                if token.fragmentIndex == mention.fragmentIndex {
+                    weight = max(900, 1_450 - abs(mention.characterOffset - token.characterOffset) * 4)
+                } else {
+                    weight = max(900, 1_450 - Int((relationship.horizontalGap ?? 0) * 1_200))
+                }
+            } else if relationship.lineGap == 1 { weight = 820 }
+            else if relationship.lineGap == 2 { weight = 480 }
+            else { weight = max(80, 280 - relationship.lineGap * 40) }
+            let corroborated = corroboratingLines.contains(mention.lineIndex) || corroboratingLines.contains(token.lineIndex)
+            let isStrong = weight >= 900 && (!mention.isAmbiguousStandaloneTerm || corroborated)
+            if mention.isAmbiguousStandaloneTerm && !corroborated { weight = min(weight, 560) }
+            return (mention, weight, isStrong)
         }.sorted {
             if $0.1 != $1.1 { return $0.1 > $1.1 }
             return $0.0.project.key < $1.0.project.key
@@ -523,8 +571,15 @@ enum EvidenceCandidatePlanner {
 
     private static func scoreRepos(near token: NearbyToken, mentions: [RepoMention]) -> [(RepoMention, Int)] {
         mentions.map { mention in
-            let lineDistance = abs(mention.lineIndex - token.lineIndex)
-            let weight = lineDistance == 0 ? 1_100 : (lineDistance == 1 ? 700 : max(100, 420 - lineDistance * 60))
+            let relationship = OCRVisualLayout.relationship(
+                firstRegion: token.region,
+                firstLine: token.lineIndex,
+                secondRegion: mention.region,
+                secondLine: mention.lineIndex
+            )
+            let weight = relationship.isSameVisualLine
+                ? 1_100
+                : (relationship.lineGap == 1 ? 700 : max(100, 420 - relationship.lineGap * 60))
             return (mention, weight)
         }.sorted {
             if $0.1 != $1.1 { return $0.1 > $1.1 }
@@ -679,11 +734,75 @@ enum ResolverDeterministicChecks {
         let duplicateProposal = duplicate.proposals.first { $0.spec == .issue(tracker: .ppm, key: "GLINT-24") }
         if duplicateProposal?.sourceOrder != explicitSourceOrder { failures.append("highest-weight evidence anchor") }
 
+        // Runtime fragments arrive nearest-to-pointer first, which is not visual reading order.
+        // These normalized regions put GLINT on the number's row even though PAI sits between
+        // them in the incoming distance ranking.
+        let distanceShuffled = OCRContextInput(fragments: [
+            .init(text: "314", lineIndex: 0, order: 0, confidence: 0.98,
+                  region: .init(x: 0.51, y: 0.47, width: 0.08, height: 0.065)),
+            .init(text: "PAI", lineIndex: 1, order: 1, confidence: 0.99,
+                  region: .init(x: 0.43, y: 0.76, width: 0.08, height: 0.06)),
+            .init(text: "GLINT", lineIndex: 2, order: 2, confidence: 0.99,
+                  region: .init(x: 0.35, y: 0.475, width: 0.12, height: 0.06)),
+        ])
+        let visualLayout = OCRVisualLayout.arranged(distanceShuffled)
+        if visualLayout.fragments[0].lineIndex != visualLayout.fragments[2].lineIndex ||
+            visualLayout.fragments[0].lineIndex == visualLayout.fragments[1].lineIndex {
+            failures.append("region-based visual rows")
+        }
+        let visualPlan = EvidenceCandidatePlanner.plan(input: distanceShuffled, context: context)
+        if visualPlan.proposals.first?.spec != .issue(tracker: .ppm, key: "GLINT-314") {
+            failures.append("distance-shuffled visual proximity")
+        }
+        if visualPlan != EvidenceCandidatePlanner.plan(input: distanceShuffled, context: context) {
+            failures.append("visual ranking determinism")
+        }
+
+        let singleEvidence = OCRContextInput(fragments: [
+            .init(text: "GLINT", lineIndex: 8, order: 0,
+                  region: .init(x: 0.30, y: 0.40, width: 0.12, height: 0.06)),
+            .init(text: "271", lineIndex: 0, order: 1,
+                  region: .init(x: 0.47, y: 0.402, width: 0.08, height: 0.06)),
+        ])
+        let repeatedEvidence = OCRContextInput(fragments: singleEvidence.fragments + [
+            .init(text: "GLINT", lineIndex: 3, order: 2,
+                  region: .init(x: 0.30, y: 0.40, width: 0.12, height: 0.06)),
+        ])
+        let singleProposal = EvidenceCandidatePlanner.plan(input: singleEvidence, context: context)
+            .proposals.first { $0.spec == .issue(tracker: .ppm, key: "GLINT-271") }
+        let repeatedProposal = EvidenceCandidatePlanner.plan(input: repeatedEvidence, context: context)
+            .proposals.first { $0.spec == .issue(tracker: .ppm, key: "GLINT-271") }
+        if singleProposal?.score != repeatedProposal?.score ||
+            Set(singleProposal?.reasons ?? []) != Set(repeatedProposal?.reasons ?? []) {
+            failures.append("duplicate evidence inflation")
+        }
+
         let bare = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context)
         if bare.proposals.count < 2 || bare.learningDecision(for: bare.proposals[0]) != nil { failures.append("bare collision learning") }
 
         let alias = EvidenceCandidatePlanner.plan(input: .init(lines: ["Pharos issue 203"]), context: context)
         if alias.proposals.first?.inferredProject != "PHAROS" { failures.append("nearby alias") }
+
+        for (text, project) in [("START 203", "START"), ("inspire 203", "INSPR")] {
+            let ambiguousAlias = EvidenceCandidatePlanner.plan(input: .init(lines: [text]), context: context)
+            guard let proposal = ambiguousAlias.proposals.first(where: { $0.inferredProject == project }) else {
+                failures.append("ambiguous alias candidate \(project)")
+                continue
+            }
+            if proposal.learningEligibility == .strongContext ||
+                ambiguousAlias.learningDecision(for: proposal) != nil {
+                failures.append("alias-only auto-learning \(project)")
+            }
+        }
+        let explicitStart = EvidenceCandidatePlanner.plan(input: .init(lines: ["START-203"]), context: context)
+        if explicitStart.proposals.first?.learningEligibility != .explicit ||
+            explicitStart.proposals.first.flatMap({ explicitStart.learningDecision(for: $0) }) == nil {
+            failures.append("explicit common-word project key")
+        }
+        let corroboratedStart = EvidenceCandidatePlanner.plan(input: .init(lines: ["START ticket 203"]), context: context)
+        if corroboratedStart.proposals.first?.learningEligibility != .strongContext {
+            failures.append("corroborated common-word project")
+        }
 
         var history = ApplicationResolutionHistory()
         let recent = CandidateProposal(spec: .issue(tracker: .ppm, key: "GLINT-20"), score: 1, reasons: [], sourceOrder: 0, inferredProject: "GLINT", learningEligibility: .explicit)
