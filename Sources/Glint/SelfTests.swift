@@ -1,6 +1,19 @@
 import Darwin
 import Foundation
 
+private final class SelfTestAsyncResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var succeeded = false
+
+    func set(_ value: Bool) {
+        lock.lock(); succeeded = value; lock.unlock()
+    }
+
+    func get() -> Bool {
+        lock.lock(); let value = succeeded; lock.unlock(); return value
+    }
+}
+
 enum SelfTests {
     static func runAndExit() -> Never {
         let tokens = TokenParser.parse([
@@ -413,6 +426,25 @@ enum SelfTests {
         guard resolverFailures.isEmpty else {
             fputs("self-test failed: evidence resolver: \(resolverFailures.joined(separator: ", "))\n", stderr)
             exit(1)
+        }
+        let cancellationFinished = DispatchSemaphore(value: 0)
+        let cancellationResult = SelfTestAsyncResult()
+        Task.detached {
+            let startedAt = Date()
+            let processTask = Task {
+                await TicketResolver.runProcessForTesting(
+                    URL(fileURLWithPath: "/bin/sleep"), ["5"]
+                )
+            }
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            processTask.cancel()
+            let output = await processTask.value
+            cancellationResult.set(output == nil && Date().timeIntervalSince(startedAt) < 2)
+            cancellationFinished.signal()
+        }
+        guard cancellationFinished.wait(timeout: .now() + 3) == .success,
+              cancellationResult.get() else {
+            fputs("self-test failed: subprocess cancellation propagation\n", stderr); exit(1)
         }
         print("GLINT self-tests passed")
         exit(0)
