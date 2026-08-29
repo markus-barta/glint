@@ -200,8 +200,17 @@ enum SelfTests {
             queuedGeneration: 8, currentGeneration: 9, completedGeneration: 7
         ), !QueuedScanLifecyclePolicy.shouldLaunch(
             queuedGeneration: 8, currentGeneration: 8, completedGeneration: 8
-        ) else {
+        ), QueuedScanLifecyclePolicy.shouldRetargetAfterPointerMovement(source: .explicitCommand),
+           !QueuedScanLifecyclePolicy.shouldRetargetAfterPointerMovement(source: .automaticHover) else {
             fputs("self-test failed: queued scan generation lifecycle\n", stderr); exit(1)
+        }
+        guard ScanCuePolicy.showsInvoked(for: .explicitCommand),
+              !ScanCuePolicy.showsInvoked(for: .automaticHover),
+              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: false, hasAnchor: false) == .noMatch,
+              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: false, hasAnchor: false) == .none,
+              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: true, hasAnchor: true) == .resolved,
+              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: true, hasAnchor: false) == .none else {
+            fputs("self-test failed: explicit-versus-automatic scan cues\n", stderr); exit(1)
         }
         guard ScanFeedbackDisappearancePolicy.shouldExpire(scheduledGeneration: 12, currentGeneration: 12),
               !ScanFeedbackDisappearancePolicy.shouldExpire(scheduledGeneration: 11, currentGeneration: 12),
@@ -254,6 +263,16 @@ enum SelfTests {
               ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: true) == .resolved,
               ScanTerminalFeedbackPolicy.event(hasResolvedResult: true, hasAnchor: false) == .none else {
             fputs("self-test failed: terminal scan feedback policy\n", stderr); exit(1)
+        }
+        let directPlan = DirectEntryResolutionPlanner.plan(
+            project: "GLINT", key: "GLINT-42", trackers: [.ppm, .pma]
+        )
+        guard directPlan.proposals.map(\.spec) == [
+            .issue(tracker: .ppm, key: "GLINT-42"),
+            .issue(tracker: .pma, key: "GLINT-42")
+        ], directPlan.learningDecision(for: directPlan.proposals[0]) == nil,
+           directPlan.learningDecision(for: directPlan.proposals[0], userConfirmed: true)?.basis == .userConfirmed else {
+            fputs("self-test failed: direct-entry confirmation learning plan\n", stderr); exit(1)
         }
         let presentation = PresentationPreferences(
             alternativePreviews: 5,

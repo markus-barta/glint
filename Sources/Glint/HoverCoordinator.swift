@@ -10,6 +10,50 @@ enum QueuedScanLifecyclePolicy {
     ) -> Bool {
         queuedGeneration == currentGeneration && queuedGeneration != completedGeneration
     }
+
+    static func shouldRetargetAfterPointerMovement(source: ScanInvocationSource) -> Bool {
+        source == .explicitCommand
+    }
+}
+
+enum ScanInvocationSource: Equatable {
+    case explicitCommand
+    case automaticHover
+}
+
+enum ScanCuePolicy {
+    static func showsInvoked(for source: ScanInvocationSource) -> Bool {
+        source == .explicitCommand
+    }
+
+    static func terminal(
+        for source: ScanInvocationSource,
+        hasResolvedResult: Bool,
+        hasAnchor: Bool
+    ) -> ScanTerminalFeedback {
+        if hasResolvedResult { return hasAnchor ? .resolved : .none }
+        return source == .explicitCommand ? .noMatch : .none
+    }
+}
+
+enum DirectEntryResolutionPlanner {
+    static func plan(project: String, key: String, trackers: [Tracker]) -> ResolutionPlan {
+        ResolutionPlan(proposals: trackers.enumerated().map { index, tracker in
+            CandidateProposal(
+                spec: .issue(tracker: tracker, key: key),
+                score: 1_000 - index,
+                reasons: [ResolutionReason(
+                    code: "pinned-direct-entry",
+                    label: "entered in pinned card",
+                    weight: 1_000 - index,
+                    strength: .strong
+                )],
+                sourceOrder: index,
+                inferredProject: project,
+                learningEligibility: .userConfirmation
+            )
+        })
+    }
 }
 
 @MainActor final class HoverCoordinator {
@@ -27,6 +71,7 @@ enum QueuedScanLifecyclePolicy {
     private var lastScanAt = Date.distantPast
     private var dwellScannedPosition: CGPoint?
     private var isScanning = false
+    private var activeScanTask: Task<Void, Never>?
     private var lastPermissionPollAt = Date.distantPast
     private var scanGeneration = 0
     private var observedActivationPreferences: ActivationPreferences
@@ -37,6 +82,8 @@ enum QueuedScanLifecyclePolicy {
         let position: CGPoint
         let presentation: Presentation
         let generation: Int
+        let source: ScanInvocationSource
+        let invokedFeedbackShown: Bool
     }
     private var pendingManualScan: PendingManualScan?
     private struct ManualInspectionState {
@@ -74,16 +121,27 @@ enum QueuedScanLifecyclePolicy {
         let presentation: Presentation = overlay.isSticky ? .pinned : .temporary
         if isScanning {
             scanGeneration += 1
+            activeScanTask?.cancel()
+            let position = NSEvent.mouseLocation
+            let showsFeedback = appState?.activationPreferences.scanFeedbackEnabled == true
+            if showsFeedback { scanFeedback.invoked(at: position) }
             pendingManualScan = PendingManualScan(
-                position: NSEvent.mouseLocation,
+                position: position,
                 presentation: presentation,
-                generation: scanGeneration
+                generation: scanGeneration,
+                source: .explicitCommand,
+                invokedFeedbackShown: showsFeedback
             )
             if presentation == .pinned { overlay.showPinnedStatus("Reading near pointer…") }
             return
         }
         scanGeneration += 1
-        _ = trigger(at: NSEvent.mouseLocation, presentation: presentation, requiresStablePointer: false)
+        _ = trigger(
+            at: NSEvent.mouseLocation,
+            presentation: presentation,
+            source: .explicitCommand,
+            requiresStablePointer: false
+        )
     }
 
     func performPinCommand() {
@@ -117,13 +175,25 @@ enum QueuedScanLifecyclePolicy {
         }
         if isScanning {
             scanGeneration += 1
+            activeScanTask?.cancel()
+            let position = NSEvent.mouseLocation
+            let showsFeedback = appState?.activationPreferences.scanFeedbackEnabled == true
+            if showsFeedback { scanFeedback.invoked(at: position) }
             pendingManualScan = PendingManualScan(
-                position: NSEvent.mouseLocation,
+                position: position,
                 presentation: .pinned,
-                generation: scanGeneration
+                generation: scanGeneration,
+                source: .explicitCommand,
+                invokedFeedbackShown: showsFeedback
             )
         } else {
-            scanGeneration += 1; _ = trigger(at: NSEvent.mouseLocation, presentation: .pinned, requiresStablePointer: false)
+            scanGeneration += 1
+            _ = trigger(
+                at: NSEvent.mouseLocation,
+                presentation: .pinned,
+                source: .explicitCommand,
+                requiresStablePointer: false
+            )
         }
     }
 
@@ -134,6 +204,7 @@ enum QueuedScanLifecyclePolicy {
                 appState?.screenRecordingGranted = granted
                 if !granted {
                     scanGeneration += 1
+                    activeScanTask?.cancel()
                     pendingManualScan = nil
                     clearManualInspection()
                     scanFeedback.cancel()
@@ -153,6 +224,11 @@ enum QueuedScanLifecyclePolicy {
         let position = NSEvent.mouseLocation
         if let manualInspection {
             let distance = hypot(position.x - manualInspection.anchor.x, position.y - manualInspection.anchor.y)
+            if pendingManualScan != nil,
+               hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
+                invalidateForPointerMovement(at: position)
+                return
+            }
             if ManualInspectionPolicy.shouldDismiss(
                 distanceFromAnchor: distance,
                 elapsed: now.timeIntervalSince(manualInspection.startedAt)
@@ -165,6 +241,7 @@ enum QueuedScanLifecyclePolicy {
         if preferences != observedActivationPreferences {
             observedActivationPreferences = preferences
             scanGeneration += 1
+            activeScanTask?.cancel()
             pendingManualScan = nil
             dwellScannedPosition = nil
             stableSince = now
@@ -173,9 +250,7 @@ enum QueuedScanLifecyclePolicy {
             appState?.activity = "Ready"
         }
         if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
-            pendingManualScan = nil
-            lastPosition = position; stableSince = now; dwellScannedPosition = nil; scanGeneration += 1; overlay.hide(); scanFeedback.cancel()
-            appState?.activity = "Ready"
+            invalidateForPointerMovement(at: position)
         }
         guard appState?.screenRecordingGranted == true else { return }
         let heldModifiers = Self.hotKeyModifiers(from: NSEvent.modifierFlags)
@@ -190,16 +265,22 @@ enum QueuedScanLifecyclePolicy {
         case .off:
             return
         case .dwell:
-            if trigger(at: position, presentation: .temporary, requiresStablePointer: true) { dwellScannedPosition = position }
+            if trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true) { dwellScannedPosition = position }
         case .hold:
-            _ = trigger(at: position, presentation: .temporary, requiresStablePointer: true)
+            _ = trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true)
         case .continuous:
-            _ = trigger(at: position, presentation: .temporary, requiresStablePointer: true)
+            _ = trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true)
         }
     }
 
     @discardableResult
-    private func trigger(at position: CGPoint, presentation: Presentation, requiresStablePointer: Bool) -> Bool {
+    private func trigger(
+        at position: CGPoint,
+        presentation: Presentation,
+        source: ScanInvocationSource,
+        showInvokedCue: Bool = true,
+        requiresStablePointer: Bool
+    ) -> Bool {
         guard !isScanning, let plan = CapturePlan.around(position) else { return false }
         guard CGPreflightScreenCaptureAccess() else { appState?.screenRecordingGranted = false; return false }
         let generation = scanGeneration
@@ -208,13 +289,19 @@ enum QueuedScanLifecyclePolicy {
         let foreground = ForegroundApplicationContext.capture()
         if presentation == .temporary, !requiresStablePointer {
             manualInspection = ManualInspectionState(anchor: position, startedAt: Date())
+            lastPosition = position
         }
         isScanning = true; lastScanAt = Date(); appState?.activity = "Reading near cursor…"
-        if appState?.activationPreferences.scanFeedbackEnabled == true { scanFeedback.invoked(at: position) }
+        if appState?.activationPreferences.scanFeedbackEnabled == true,
+           showInvokedCue,
+           ScanCuePolicy.showsInvoked(for: source) {
+            scanFeedback.invoked(at: position)
+        }
         if presentation == .pinned, overlay.isSticky { overlay.showPinnedStatus("Reading near pointer…") }
-        Task {
+        activeScanTask = Task {
             defer { finishScan(completedGeneration: generation) }
             let fragments = await ocr.recognizeFragments(plan: plan)
+            guard !Task.isCancelled else { return }
             let input = Self.contextInput(from: fragments)
             let tokens = TokenParser.parse(input)
             let context = ResolutionContext.load()
@@ -226,6 +313,7 @@ enum QueuedScanLifecyclePolicy {
                 foreground: foreground,
                 history: history
             )
+            guard !Task.isCancelled else { return }
             let anchorSourceOrders = Set(ScanAnchorPolicy.sourceOrders(tokens: tokens, plan: resolutionPlan))
             let anchorPairs = tokens.filter { anchorSourceOrders.contains($0.sourceOrder) }.compactMap { token in
                 ScanFeedbackAnchor(token: token, fragments: fragments).map { (token.sourceOrder, $0) }
@@ -243,6 +331,7 @@ enum QueuedScanLifecyclePolicy {
                 scanFeedback.recognized(anchors: anchorPairs.map(\.1), selected: selectedAnchor)
             }
             let resolved = await resolver.resolve(resolutionPlan)
+            guard !Task.isCancelled else { return }
             let terminalEvent: ScanFeedbackLifecycleEvent = resolved.isEmpty ? .noMatch : .resolved
             guard ScanFeedbackLifecyclePolicy.permits(
                 terminalEvent,
@@ -260,7 +349,11 @@ enum QueuedScanLifecyclePolicy {
                     currentGeneration: scanGeneration
                 ) else { return }
                 let resultAnchor = resolved.first.flatMap { anchorsBySourceOrder[$0.proposal.sourceOrder] ?? selectedAnchor }
-                switch ScanTerminalFeedbackPolicy.event(hasResolvedResult: !resolved.isEmpty, hasAnchor: resultAnchor != nil) {
+                switch ScanCuePolicy.terminal(
+                    for: source,
+                    hasResolvedResult: !resolved.isEmpty,
+                    hasAnchor: resultAnchor != nil
+                ) {
                 case .resolved:
                     guard let anchor = resultAnchor else { break }
                     scanFeedback.resolved(anchor: anchor)
@@ -295,6 +388,7 @@ enum QueuedScanLifecyclePolicy {
 
     private func finishScan(completedGeneration: Int) {
         isScanning = false
+        activeScanTask = nil
         guard let pending = pendingManualScan else { return }
         pendingManualScan = nil
         guard QueuedScanLifecyclePolicy.shouldLaunch(
@@ -305,7 +399,13 @@ enum QueuedScanLifecyclePolicy {
             appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
             return
         }
-        if !trigger(at: pending.position, presentation: pending.presentation, requiresStablePointer: false) {
+        if !trigger(
+            at: pending.position,
+            presentation: pending.presentation,
+            source: pending.source,
+            showInvokedCue: !pending.invokedFeedbackShown,
+            requiresStablePointer: false
+        ) {
             appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
         }
     }
@@ -449,20 +549,22 @@ enum QueuedScanLifecyclePolicy {
         let key = "\(project.key)-\(number)"
         PinnedTicketContext(project: project.key, number: number).persist()
         overlay.setInput(key); appState?.activity = "Resolving \(key)…"
+        var trackers = [project.tracker]
+        if !CandidatePlanner.ppmProjects.contains(project.key), !CandidatePlanner.pmaProjects.contains(project.key) {
+            trackers.append(project.tracker.other)
+        }
+        let plan = DirectEntryResolutionPlanner.plan(project: project.key, key: key, trackers: trackers)
+        let foreground = ForegroundApplicationContext.capture()
         Task {
-            var trackers = [project.tracker]
-            if !CandidatePlanner.ppmProjects.contains(project.key), !CandidatePlanner.pmaProjects.contains(project.key) {
-                trackers.append(project.tracker.other)
-            }
-            var resolved: (GlintLine, Tracker)?
-            for tracker in trackers {
-                if let line = await resolver.resolve(.issue(tracker: tracker, key: key)) {
-                    resolved = (line, tracker); break
-                }
-            }
+            let resolved = await resolver.resolve(plan).first
             guard generation == directGeneration, overlay.isSticky else { return }
-            if let (line, tracker) = resolved {
+            if let resolved,
+               case let .issue(tracker, _) = resolved.proposal.spec {
+                let line = resolved.line
                 overlay.replacePinnedResults([line], selecting: line.key)
+                if let decision = plan.learningDecision(for: resolved.proposal, userConfirmed: true) {
+                    ResolutionHistoryStore.record(decision, bundleIdentifier: foreground?.bundleIdentifier)
+                }
                 var context = ResolutionContext.load(); context.saw(project: project.key, on: tracker)
                 PinnedTicketContext(project: project.key, number: number).persist()
                 appState?.activity = line.title
@@ -480,7 +582,7 @@ enum QueuedScanLifecyclePolicy {
     private func closePinned() {
         clearManualInspection()
         pendingManualScan = nil
-        scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
+        scanGeneration += 1; activeScanTask?.cancel(); directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
         lastPosition = NSEvent.mouseLocation; stableSince = Date(); dwellScannedPosition = nil; appState?.activity = "Ready"
     }
 
@@ -491,6 +593,7 @@ enum QueuedScanLifecyclePolicy {
     private func dismissManualInspection() {
         clearManualInspection()
         scanGeneration += 1
+        activeScanTask?.cancel()
         pendingManualScan = nil
         overlay.hide()
         scanFeedback.cancel()
@@ -498,6 +601,32 @@ enum QueuedScanLifecyclePolicy {
         lastPosition = NSEvent.mouseLocation
         stableSince = Date()
         dwellScannedPosition = nil
+    }
+
+    private func invalidateForPointerMovement(at position: CGPoint) {
+        scanGeneration += 1
+        activeScanTask?.cancel()
+        scanFeedback.cancel()
+        if let pending = pendingManualScan,
+           QueuedScanLifecyclePolicy.shouldRetargetAfterPointerMovement(source: pending.source) {
+            let showsFeedback = appState?.activationPreferences.scanFeedbackEnabled == true
+            if showsFeedback { scanFeedback.invoked(at: position) }
+            pendingManualScan = PendingManualScan(
+                position: position,
+                presentation: pending.presentation,
+                generation: scanGeneration,
+                source: pending.source,
+                invokedFeedbackShown: showsFeedback
+            )
+        } else {
+            pendingManualScan = nil
+        }
+        clearManualInspection()
+        lastPosition = position
+        stableSince = Date()
+        dwellScannedPosition = nil
+        overlay.hide()
+        appState?.activity = "Ready"
     }
 
     private static func projectAndNumber(from key: String) -> (String, Int)? {
