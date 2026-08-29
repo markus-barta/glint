@@ -231,15 +231,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--scan-feedback-probe") {
             Task { @MainActor [weak self] in self?.showScanFeedbackProbe() }
         }
-        if CommandLine.arguments.contains("--overlay-probe") {
+        if CommandLine.arguments.contains("--overlay-probe") || CommandLine.arguments.contains("--overlay-stress-probe") {
             let overlay = OverlayController(allowsCapture: true)
-            overlay.show([
+            let stress = CommandLine.arguments.contains("--overlay-stress-probe")
+            let lines: [GlintLine] = stress ? [
+                GlintLine(key: "GLINT-24", state: "in-progress", title: "Make detailed ticket cards adapt precisely to long real-world titles without hiding the alternatives users expect to reach with the mouse wheel", source: "ppm", metadata: "ticket · high priority · release 0.3", detail: "This deliberately long detail is representative of a real tracker response. It verifies that an Extra Large, Detailed card measures every visible line before choosing its panel height, keeps the alternative rail reachable, and leaves the pinned navigation footer flush with the bottom edge instead of clipping content or creating a large empty void."),
+                GlintLine(key: "GLINT-23", state: "open", title: "Preserve wheel navigation", source: "ppm"),
+                GlintLine(key: "#184", state: "review", title: "Keep GitHub pull requests visible", source: "gh"),
+                GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
+                GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
+                GlintLine(key: "GLINT-19", state: "open", title: "Show scan feedback", source: "ppm")
+            ] : [
                 GlintLine(key: "GLINT-12", state: "in-progress", title: "Add configurable global inspect and pin commands", source: "ppm", metadata: "ticket · high priority", detail: "Record any safe system-wide shortcut and open the ticket navigator immediately, without requiring an accessibility permission."),
                 GlintLine(key: "GLINT-13", state: "new", title: "Build the docked wheel-driven pinned navigator", source: "ppm", metadata: "ticket · high priority", detail: "A secondary result becomes a full card when selected."),
-                GlintLine(key: "GLINT-14", state: "new", title: "Add focused ticket entry and fuzzy project switching", source: "ppm", metadata: "ticket · high priority", detail: "Type a number or a forgiving project abbreviation while the card has focus."),
-            ], near: NSEvent.mouseLocation, shortcutLabel: "⌥⇧Space")
+                GlintLine(key: "GLINT-14", state: "new", title: "Add focused ticket entry and fuzzy project switching", source: "ppm", metadata: "ticket · high priority", detail: "Type a number or a forgiving project abbreviation while the card has focus.")
+            ]
+            overlay.show(lines, near: NSEvent.mouseLocation, shortcutLabel: "⌥⇧Space")
             overlay.pin(shortcutLabel: "⌥⇧Space")
             probeOverlay = overlay
+            if let index = CommandLine.arguments.firstIndex(of: "--overlay-capture-probe"),
+               CommandLine.arguments.indices.contains(index + 1) {
+                let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { overlay.captureProbe(to: url) }
+            }
         }
 #endif
     }
@@ -457,7 +471,6 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var state: AppState
-    private let forceScanFeedbackOnForProbe: Bool
     @State private var selection: SettingsPane = .scanning
     @State private var recorderFeedback: PreferenceFeedback?
     @State private var cacheCleared = false
@@ -466,11 +479,8 @@ struct SettingsView: View {
     init(state: AppState) {
         self.state = state
 #if DEBUG
-        forceScanFeedbackOnForProbe = CommandLine.arguments.contains("--settings-capture-probe")
         if CommandLine.arguments.contains("--settings-appearance-probe") { _selection = State(initialValue: .appearance) }
         else if CommandLine.arguments.contains("--settings-pinned-probe") { _selection = State(initialValue: .pinned) }
-#else
-        forceScanFeedbackOnForProbe = false
 #endif
     }
 
@@ -559,7 +569,7 @@ struct SettingsView: View {
                 activationDetail
 
                 Divider()
-                Toggle(isOn: scanFeedbackBinding) {
+                Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Show scan feedback").fontWeight(.medium)
                         Text("Briefly marks where GLINT is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
@@ -588,13 +598,6 @@ struct SettingsView: View {
                 Button("Restore Activation Defaults") { state.resetActivation(); recorderFeedback = .success("Activation defaults restored.") }
             }
         }
-    }
-
-    private var scanFeedbackBinding: Binding<Bool> {
-        Binding(
-            get: { forceScanFeedbackOnForProbe || state.activationPreferences.scanFeedbackEnabled },
-            set: { state.activationPreferences.scanFeedbackEnabled = $0 }
-        )
     }
 
     @ViewBuilder private var activationDetail: some View {

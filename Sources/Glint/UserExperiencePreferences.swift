@@ -73,7 +73,8 @@ struct ActivationPreferences: Equatable {
     /// Compatibility hook while the coordinator migrates to `mode` directly.
     var legacyTriggerMode: TriggerMode {
         switch mode {
-        case .dwell, .off: return .dwell
+        case .off: return .off
+        case .dwell: return .dwell
         case .hold: return .option
         case .continuous: return .always
         }
@@ -99,6 +100,7 @@ struct ActivationPreferences: Equatable {
             let legacy = TriggerMode(rawValue: defaults.string(forKey: "triggerMode") ?? "dwell") ?? .dwell
             let migratedMode: HoverActivationMode
             switch legacy {
+            case .off: migratedMode = .off
             case .dwell: migratedMode = .dwell
             case .option: migratedMode = .hold
             case .always: migratedMode = .continuous
@@ -116,6 +118,9 @@ struct ActivationPreferences: Equatable {
             scanFeedbackEnabled: defaults.object(forKey: prefix + "scanFeedbackEnabled") == nil ? true : defaults.bool(forKey: prefix + "scanFeedbackEnabled")
         )
         value.dwellMilliseconds = min(max(value.dwellMilliseconds == 0 ? 300 : value.dwellMilliseconds, dwellRange.lowerBound), dwellRange.upperBound)
+        if defaults.string(forKey: "triggerMode") != value.legacyTriggerMode.rawValue {
+            defaults.set(value.legacyTriggerMode.rawValue, forKey: "triggerMode")
+        }
         return value
     }
 

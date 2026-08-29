@@ -3,30 +3,79 @@ import SwiftUI
 
 enum OverlayMetrics {
     static let pinnedReservedChromeHeight: CGFloat = 76
+    static let outerPadding: CGFloat = 10
+    static let sectionSpacing: CGFloat = 8
 
     static func pinnedBodyHeight(totalHeight: CGFloat) -> CGFloat {
         max(0, totalHeight - pinnedReservedChromeHeight)
     }
 
-    static func preferredHeight(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences) -> CGFloat {
-        guard !lines.isEmpty else { return sticky ? 250 : 190 }
-        let primaryBase: CGFloat
-        switch preferences.density {
-        case .compact: primaryBase = 104
-        case .comfortable: primaryBase = 156
-        case .detailed: primaryBase = 184
-        }
+    static func preferredHeight(
+        lines: [GlintLine],
+        sticky: Bool,
+        preferences: PresentationPreferences,
+        selectedIndex: Int = 0,
+        width: CGFloat? = nil
+    ) -> CGFloat {
+        let resolvedWidth = max(360, width ?? preferences.width.points)
+        guard !lines.isEmpty else { return sticky ? 236 : 180 }
+        let normalizedIndex = ((selectedIndex % lines.count) + lines.count) % lines.count
+        let primary = primaryHeight(line: lines[normalizedIndex], preferences: preferences, width: resolvedWidth)
         let alternatives = min(preferences.alternativePreviews, max(0, lines.count - 1))
-        let hasVisibleAlternatives = alternatives > 0
-        let rail = hasVisibleAlternatives ? 27 + CGFloat(alternatives) * (43 * preferences.textSize.scale) : 0
-        let chrome: CGFloat = sticky ? 72 : (hasVisibleAlternatives ? 45 : 22)
-        return ceil(primaryBase * preferences.textSize.scale + rail + chrome)
+        let rail = alternativeBlockHeight(count: alternatives, sticky: sticky, preferences: preferences)
+        let body = primary + (rail > 0 ? sectionSpacing + rail : 0)
+        return ceil(body + (sticky ? pinnedReservedChromeHeight : outerPadding * 2))
     }
 
-    static func size(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences, visibleFrame: CGRect) -> CGSize {
+    static func size(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences, selectedIndex: Int = 0, visibleFrame: CGRect) -> CGSize {
         let width = min(preferences.width.points, max(360, visibleFrame.width - 24))
-        let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences)
+        let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences, selectedIndex: selectedIndex, width: width)
         return CGSize(width: width, height: min(preferred, max(190, visibleFrame.height - 24)))
+    }
+
+    static func primaryHeight(line: GlintLine, preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
+        let cardPadding = preferences.density.verticalPadding
+        let textWidth = max(160, width - outerPadding * 2 - cardPadding * 2)
+        let scale = preferences.textSize.scale
+        let keyFont = NSFont.monospacedSystemFont(ofSize: 15 * scale, weight: .bold)
+        let titleFont = NSFont.systemFont(ofSize: 17 * scale, weight: .semibold)
+        let detailFont = NSFont.systemFont(ofSize: 13 * scale)
+        let metadataFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let header = max(22, lineHeight(for: keyFont))
+        let titleLines = preferences.density == .detailed ? 3 : 2
+        let title = boundedTextHeight(line.title, font: titleFont, width: textWidth, lineLimit: titleLines)
+
+        var childHeights = [header, title]
+        if preferences.density.showsDetail, !line.detail.isEmpty {
+            childHeights.append(boundedTextHeight(line.detail, font: detailFont, width: textWidth, lineLimit: preferences.density.detailLines))
+        }
+        if preferences.density.showsMetadata, !line.metadata.isEmpty {
+            childHeights.append(boundedTextHeight(line.metadata, font: metadataFont, width: textWidth, lineLimit: 1))
+        }
+        let spacing = preferences.density == .compact ? CGFloat(6) : CGFloat(10)
+        return ceil(childHeights.reduce(0, +) + CGFloat(max(0, childHeights.count - 1)) * spacing + cardPadding * 2)
+    }
+
+    static func alternativeBlockHeight(count: Int, sticky: Bool, preferences: PresentationPreferences) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let header = lineHeight(for: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .bold))
+        let rows = CGFloat(count) * (43 * preferences.textSize.scale) + CGFloat(max(0, count - 1))
+        let hint = sticky ? 0 : 4 + lineHeight(for: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize))
+        return ceil(header + 4 + rows + hint)
+    }
+
+    static func boundedTextHeight(_ text: String, font: NSFont, width: CGFloat, lineLimit: Int) -> CGFloat {
+        guard !text.isEmpty, width > 0, lineLimit > 0 else { return 0 }
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return min(ceil(bounds.height), lineHeight(for: font) * CGFloat(lineLimit))
+    }
+
+    static func lineHeight(for font: NSFont) -> CGFloat {
+        ceil(font.ascender - font.descender + font.leading)
     }
 
     static func previewScale(
@@ -124,9 +173,7 @@ struct OverlayContent: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     resultBody
                 }
-                .scrollDisabled(true)
                 .frame(height: OverlayMetrics.pinnedBodyHeight(totalHeight: constrainedSize.height))
-                .clipped()
                 pinnedFooter.fixedSize(horizontal: false, vertical: true)
             } else {
                 resultBody
@@ -142,16 +189,18 @@ struct OverlayContent: View {
     private var alternativeIndices: [Int] { preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex) }
 
     @ViewBuilder private var resultBody: some View {
-        if let line = selectedLine {
-            PrimaryResultCard(line: line, preferences: preferences)
-        } else {
-            VStack(spacing: 12) {
-                ProgressView().controlSize(.small)
-                Text(statusText ?? "Ready for a ticket number").font(.headline)
-                Text("Type a number, paste a ticket key, or point at one and use Inspect.").font(.callout).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, minHeight: 160)
+        VStack(alignment: .leading, spacing: OverlayMetrics.sectionSpacing) {
+            if let line = selectedLine {
+                PrimaryResultCard(line: line, preferences: preferences)
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView().controlSize(.small)
+                    Text(statusText ?? "Ready for a ticket number").font(.headline)
+                    Text("Type a number, paste a ticket key, or point at one and use Inspect.").font(.callout).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, minHeight: 160)
+            }
+            alternativeResults
         }
-        alternativeResults
     }
 
     private var pinnedHeader: some View {
@@ -171,20 +220,22 @@ struct OverlayContent: View {
 
     @ViewBuilder private var alternativeResults: some View {
         if !alternativeIndices.isEmpty {
-            HStack {
-                Text("NEXT WITH SCROLL").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                Spacer()
-                let remaining = max(0, lines.count - 1 - alternativeIndices.count)
-                if remaining > 0 { Text("+\(remaining) more").font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
-            }.padding(.horizontal, 8)
-            VStack(spacing: 0) {
-                ForEach(Array(alternativeIndices.enumerated()), id: \.element) { offset, index in
-                    AlternativeResultRow(position: offset + 1, line: lines[index], preferences: preferences)
-                    if offset < alternativeIndices.count - 1 { Divider().padding(.leading, 38) }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("NEXT WITH SCROLL").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    Spacer()
+                    let remaining = max(0, lines.count - 1 - alternativeIndices.count)
+                    if remaining > 0 { Text("+\(remaining) more").font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
+                }.padding(.horizontal, 8)
+                VStack(spacing: 0) {
+                    ForEach(Array(alternativeIndices.enumerated()), id: \.element) { offset, index in
+                        AlternativeResultRow(position: offset + 1, line: lines[index], preferences: preferences)
+                        if offset < alternativeIndices.count - 1 { Divider().padding(.leading, 38) }
+                    }
                 }
-            }
-            if !sticky {
-                HStack(spacing: 6) { Image(systemName: "pin"); Text("\(shortcutLabel) opens the navigator") }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                if !sticky {
+                    HStack(spacing: 6) { Image(systemName: "pin"); Text("\(shortcutLabel) opens the navigator") }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                }
             }
         }
     }
@@ -263,6 +314,17 @@ struct AppearanceCardPreview: View {
     var isVisible: Bool { panel.isVisible }
     var isActive: Bool { panel.isKeyWindow }
     var selectedLine: GlintLine? { displayedLines.indices.contains(selectedIndex) ? displayedLines[selectedIndex] : displayedLines.first }
+
+#if DEBUG
+    func captureProbe(to url: URL) {
+        guard let view = panel.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        guard let data = representation.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+#endif
 
     init(allowsCapture: Bool = false) {
         panel = FocusablePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -393,7 +455,7 @@ struct AppearanceCardPreview: View {
     private func renderTemporary() {
         guard let targetScreen = screen(containing: anchorMouse) else { hide(); return }
         let visible = targetScreen.visibleFrame
-        let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, visibleFrame: visible)
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, selectedIndex: selectedIndex, visibleFrame: visible)
         var origin = CGPoint(x: anchorMouse.x + 18, y: anchorMouse.y - size.height - 18)
         if origin.x + size.width > visible.maxX { origin.x = anchorMouse.x - size.width - 18 }
         if origin.y < visible.minY { origin.y = anchorMouse.y + 18 }
@@ -408,7 +470,7 @@ struct AppearanceCardPreview: View {
             hide(); return
         }
         let visible = targetScreen.visibleFrame
-        let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, visibleFrame: visible)
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, selectedIndex: selectedIndex, visibleFrame: visible)
         let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : PanelPlacement.clamped(origin: panel.frame.origin, size: size, visibleFrame: visible)
         panel.contentView = hostingView(size: size)
         isPositioningProgrammatically = true; panel.setFrame(CGRect(origin: origin, size: size), display: true); isPositioningProgrammatically = false

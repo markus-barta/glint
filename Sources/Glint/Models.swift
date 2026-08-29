@@ -7,10 +7,13 @@ enum Tracker: String, Codable, CaseIterable, Sendable {
 }
 
 enum TriggerMode: String, CaseIterable, Identifiable {
-    case dwell, option, always
+    case off, dwell, option, always
+    /// Retained for legacy UI/tests; Off is represented explicitly but was never a legacy picker option.
+    static let allCases: [TriggerMode] = [.dwell, .option, .always]
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .off: return "Off"
         case .dwell: return "Dwell (300 ms)"
         case .option: return "Hold Option"
         case .always: return "Always follow"
