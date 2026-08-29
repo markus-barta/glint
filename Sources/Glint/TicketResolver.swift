@@ -22,6 +22,38 @@ private struct PullRequest: Decodable {
 }
 private struct CacheEntry: Codable { let line: GlintLine?; let savedAt: Date }
 
+private final class ProcessCancellationHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func install(_ process: Process) {
+        lock.lock(); self.process = process; lock.unlock()
+    }
+
+    func clear() {
+        lock.lock(); process = nil; lock.unlock()
+    }
+
+    func requestTermination() {
+        lock.lock(); let running = process; lock.unlock()
+        if running?.isRunning == true { running?.terminate() }
+    }
+}
+
+private final class ProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock(); data.append(chunk); lock.unlock()
+    }
+
+    func snapshot(appending tail: Data) -> Data {
+        lock.lock(); data.append(tail); let value = data; lock.unlock()
+        return value
+    }
+}
+
 struct ResolvedCandidate: Hashable, Sendable {
     let proposal: CandidateProposal
     let line: GlintLine
@@ -37,51 +69,71 @@ actor TicketResolver {
     }
 
     func resolve(_ spec: CandidateSpec) async -> GlintLine? {
+        guard !Task.isCancelled else { return nil }
         if let entry = cache[spec.cacheKey] {
             let ttl: TimeInterval = entry.line == nil ? 60 : 15 * 60
-            if Date().timeIntervalSince(entry.savedAt) < ttl { return entry.line }
+            if Date().timeIntervalSince(entry.savedAt) < ttl { return Task.isCancelled ? nil : entry.line }
         }
         let line: GlintLine?
         switch spec {
         case let .issue(tracker, key): line = await resolveIssue(tracker: tracker, key: key)
         case let .pullRequest(number, repo): line = await resolvePullRequest(number: number, repo: repo)
         }
+        // Cancellation is not a negative lookup and must never poison the miss cache.
+        guard !Task.isCancelled else { return nil }
         cache[spec.cacheKey] = CacheEntry(line: line, savedAt: Date())
         persist()
         return line
     }
 
-    /// Resolves at most four candidates concurrently. Once enough real, unique results exist,
-    /// no more subprocesses are launched; the bounded in-flight set is simply drained.
+    /// Resolves evidence-backed candidates first. The weight-1 namespace sweep is launched only
+    /// when that phase produced no real ticket, keeping common scans from fanning out broadly.
     func resolve(_ plan: ResolutionPlan) async -> [ResolvedCandidate] {
-        let bounded = Array(plan.proposals.prefix(ResolutionPlan.maximumCandidates))
-        guard !bounded.isEmpty else { return [] }
+        guard !Task.isCancelled else { return [] }
+        let phases = plan.lookupPhases
         let maximumResults = HoverResultPolicy.maximumResults
+        let primary = await resolvePhase(phases.primary, maximumResults: maximumResults)
+        guard !Task.isCancelled else { return [] }
+        guard ResolutionLookupPolicy.shouldResolveFallback(primaryResolvedCount: primary.count) else { return primary }
+        return await resolvePhase(phases.fallback, maximumResults: maximumResults)
+    }
+
+    private func resolvePhase(
+        _ proposals: [CandidateProposal],
+        maximumResults: Int
+    ) async -> [ResolvedCandidate] {
+        let bounded = Array(proposals.prefix(ResolutionPlan.maximumCandidates))
+        guard !bounded.isEmpty, !Task.isCancelled else { return [] }
         let resolved = await withTaskGroup(of: (Int, GlintLine?).self, returning: [(Int, GlintLine?)].self) { group in
             var launched = ResolutionLookupPolicy.initialCount(total: bounded.count)
             for index in 0..<launched {
                 let proposal = bounded[index]
                 group.addTask { [weak self] in
-                    guard let self else { return (index, nil) }
+                    guard let self, !Task.isCancelled else { return (index, nil) }
                     return (index, await self.resolve(proposal.spec))
                 }
             }
             var values: [(Int, GlintLine?)] = []
             var realIDs = Set<String>()
             while let value = await group.next() {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
                 values.append(value)
                 if let line = value.1 { realIDs.insert(line.id) }
                 if ResolutionLookupPolicy.shouldLaunchNext(
                     launched: launched,
                     total: bounded.count,
                     resolvedCount: realIDs.count,
-                    maximumResults: maximumResults
+                    maximumResults: maximumResults,
+                    isCancelled: Task.isCancelled
                 ) {
                     let index = launched
                     let proposal = bounded[index]
                     launched += 1
                     group.addTask { [weak self] in
-                        guard let self else { return (index, nil) }
+                        guard let self, !Task.isCancelled else { return (index, nil) }
                         return (index, await self.resolve(proposal.spec))
                     }
                 }
@@ -156,36 +208,66 @@ actor TicketResolver {
         return String(condensed.prefix(limit - 1)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
+    static func runProcessForTesting(_ executable: URL, _ arguments: [String]) async -> Data? {
+        await run(executable, arguments)
+    }
+
     private static func run(_ executable: URL, _ arguments: [String]) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let process = Process()
+        let stdout = Pipe()
+        let cancellationHandle = ProcessCancellationHandle()
+        let output = ProcessOutputBuffer()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            output.append(chunk)
+        }
+        do { try process.run() } catch {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+        cancellationHandle.install(process)
+        let startedAt = Date()
+        let succeeded = await withTaskCancellationHandler(operation: {
+            while process.isRunning,
+                  !ProcessExecutionPolicy.shouldStop(
+                    isCancelled: Task.isCancelled,
+                    elapsed: Date().timeIntervalSince(startedAt)
+                  ) {
+                try? await Task.sleep(nanoseconds: ProcessExecutionPolicy.pollNanoseconds)
+            }
+            if process.isRunning { await terminate(process) }
+            return !Task.isCancelled && !process.isRunning && process.terminationStatus == 0
+        }, onCancel: {
+            cancellationHandle.requestTermination()
+        })
+        cancellationHandle.clear()
+        stdout.fileHandleForReading.readabilityHandler = nil
+        guard succeeded else {
+            try? stdout.fileHandleForReading.close()
+            return nil
+        }
+        let tail = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = output.snapshot(appending: tail)
+        return data
+    }
+
+    private static func terminate(_ process: Process) async {
+        if process.isRunning { process.terminate() }
+        if process.isRunning { await uncancelledPause(nanoseconds: ProcessExecutionPolicy.terminationGraceNanoseconds) }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        if process.isRunning { await uncancelledPause(nanoseconds: ProcessExecutionPolicy.killGraceNanoseconds) }
+    }
+
+    private static func uncancelledPause(nanoseconds: UInt64) async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process(); let stdout = Pipe()
-                process.executableURL = executable; process.arguments = arguments
-                process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
-                let finished = DispatchSemaphore(value: 0)
-                let outputLock = NSLock()
-                var output = Data()
-                stdout.fileHandleForReading.readabilityHandler = { handle in
-                    let chunk = handle.availableData
-                    guard !chunk.isEmpty else { return }
-                    outputLock.lock(); output.append(chunk); outputLock.unlock()
-                }
-                process.terminationHandler = { _ in finished.signal() }
-                do {
-                    try process.run()
-                    if finished.wait(timeout: .now() + 3) == .timedOut {
-                        process.terminate()
-                        if finished.wait(timeout: .now() + 1) == .timedOut {
-                            kill(process.processIdentifier, SIGKILL)
-                            _ = finished.wait(timeout: .now() + 1)
-                        }
-                    }
-                    stdout.fileHandleForReading.readabilityHandler = nil
-                    let tail = stdout.fileHandleForReading.readDataToEndOfFile()
-                    outputLock.lock(); output.append(tail); let data = output; outputLock.unlock()
-                    guard !process.isRunning, process.terminationStatus == 0 else { continuation.resume(returning: nil); return }
-                    continuation.resume(returning: data)
-                } catch { continuation.resume(returning: nil) }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .nanoseconds(Int(nanoseconds))) {
+                continuation.resume()
             }
         }
     }

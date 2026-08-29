@@ -70,8 +70,29 @@ enum ResolutionLookupPolicy {
         min(max(0, total), maximumConcurrentLookups)
     }
 
-    static func shouldLaunchNext(launched: Int, total: Int, resolvedCount: Int, maximumResults: Int) -> Bool {
-        launched < total && resolvedCount < maximumResults
+    static func shouldLaunchNext(
+        launched: Int,
+        total: Int,
+        resolvedCount: Int,
+        maximumResults: Int,
+        isCancelled: Bool = false
+    ) -> Bool {
+        !isCancelled && launched < total && resolvedCount < maximumResults
+    }
+
+    static func shouldResolveFallback(primaryResolvedCount: Int, isCancelled: Bool = false) -> Bool {
+        !isCancelled && primaryResolvedCount == 0
+    }
+}
+
+enum ProcessExecutionPolicy {
+    static let timeout: TimeInterval = 3
+    static let pollNanoseconds: UInt64 = 25_000_000
+    static let terminationGraceNanoseconds: UInt64 = 125_000_000
+    static let killGraceNanoseconds: UInt64 = 125_000_000
+
+    static func shouldStop(isCancelled: Bool, elapsed: TimeInterval) -> Bool {
+        isCancelled || elapsed >= timeout
     }
 }
 

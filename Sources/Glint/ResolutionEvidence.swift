@@ -61,6 +61,35 @@ struct CandidateProposal: Hashable, Sendable {
             return $0.label < $1.label
         }.map(\.label).joined(separator: " · ")
     }
+
+    /// The exhaustive namespace sweep is deliberately separated from evidence-backed work.
+    /// A proposal with any stronger reason remains in the primary phase.
+    var isKnownProjectFallback: Bool {
+        score == 1 && !reasons.isEmpty && reasons.allSatisfy {
+            $0.code == "known-project-fallback" && $0.weight == 1 && $0.strength == .fallback
+        }
+    }
+}
+
+/// Total ordering for the unique CandidateSpec values in a plan:
+/// higher evidence score, then earlier visible source anchor, then lexical cache key.
+/// Candidate specs are deduplicated before sorting, so the cache key is a strict final tie-break.
+enum CandidateProposalStableOrdering {
+    static func precedes(_ lhs: CandidateProposal, _ rhs: CandidateProposal) -> Bool {
+        if lhs.score != rhs.score { return lhs.score > rhs.score }
+        if lhs.sourceOrder != rhs.sourceOrder { return lhs.sourceOrder < rhs.sourceOrder }
+        return lhs.spec.cacheKey < rhs.spec.cacheKey
+    }
+
+    static func isStrictlyOrdered(_ proposals: [CandidateProposal]) -> Bool {
+        guard Set(proposals.map { $0.spec.cacheKey }).count == proposals.count else { return false }
+        return zip(proposals, proposals.dropFirst()).allSatisfy { pair in precedes(pair.0, pair.1) }
+    }
+}
+
+struct ResolutionProposalPhases: Hashable, Sendable {
+    let primary: [CandidateProposal]
+    let fallback: [CandidateProposal]
 }
 
 struct ResolutionPlan: Hashable, Sendable {
@@ -70,6 +99,13 @@ struct ResolutionPlan: Hashable, Sendable {
     static let maximumCandidates = 16
 
     let proposals: [CandidateProposal]
+
+    var lookupPhases: ResolutionProposalPhases {
+        ResolutionProposalPhases(
+            primary: proposals.filter { !$0.isKnownProjectFallback },
+            fallback: proposals.filter(\.isKnownProjectFallback)
+        )
+    }
 
     var isAmbiguous: Bool {
         guard proposals.count > 1 else { return false }
@@ -484,14 +520,8 @@ enum EvidenceCandidatePlanner {
                 inferredProject: $0.inferredProject,
                 learningEligibility: $0.eligibility
             )
-        }.sorted(by: stableOrder).prefix(max(0, maximumCandidates)).map { $0 }
+        }.sorted(by: CandidateProposalStableOrdering.precedes).prefix(max(0, maximumCandidates)).map { $0 }
         return ResolutionPlan(proposals: proposals)
-    }
-
-    private static func stableOrder(_ lhs: CandidateProposal, _ rhs: CandidateProposal) -> Bool {
-        if lhs.score != rhs.score { return lhs.score > rhs.score }
-        if lhs.sourceOrder != rhs.sourceOrder { return lhs.sourceOrder < rhs.sourceOrder }
-        return lhs.spec.cacheKey < rhs.spec.cacheKey
     }
 
     private static func findProjectMentions(in input: OCRContextInput) -> [ProjectMention] {
@@ -754,8 +784,26 @@ enum ResolverDeterministicChecks {
         if visualPlan.proposals.first?.spec != .issue(tracker: .ppm, key: "GLINT-314") {
             failures.append("distance-shuffled visual proximity")
         }
-        if visualPlan != EvidenceCandidatePlanner.plan(input: distanceShuffled, context: context) {
-            failures.append("visual ranking determinism")
+        if !CandidateProposalStableOrdering.isStrictlyOrdered(visualPlan.proposals) {
+            failures.append("planner stable-order invariant")
+        }
+
+        func orderingFixture(spec: CandidateSpec, score: Int, sourceOrder: Int) -> CandidateProposal {
+            CandidateProposal(
+                spec: spec, score: score,
+                reasons: [.init(code: "fixture", label: spec.cacheKey, weight: score, strength: .weak)],
+                sourceOrder: sourceOrder, inferredProject: nil, learningEligibility: .never
+            )
+        }
+        let highestScore = orderingFixture(spec: .issue(tracker: .ppm, key: "PAI-9"), score: 200, sourceOrder: 50)
+        let earlierSource = orderingFixture(spec: .pullRequest(number: 9, repo: "markus-barta/glint"), score: 100, sourceOrder: 2)
+        let lexicalFirst = orderingFixture(spec: .issue(tracker: .ppm, key: "GLINT-9"), score: 100, sourceOrder: 7)
+        let lexicalSecond = orderingFixture(spec: .pullRequest(number: 8, repo: "markus-barta/glint"), score: 100, sourceOrder: 7)
+        let orderedFixtures = [lexicalSecond, earlierSource, highestScore, lexicalFirst]
+            .sorted(by: CandidateProposalStableOrdering.precedes)
+        if orderedFixtures.map(\.spec) != [highestScore.spec, earlierSource.spec, lexicalFirst.spec, lexicalSecond.spec] ||
+            !CandidateProposalStableOrdering.isStrictlyOrdered(orderedFixtures) {
+            failures.append("total stable-order tie breaks")
         }
 
         let singleEvidence = OCRContextInput(fragments: [
@@ -779,6 +827,23 @@ enum ResolverDeterministicChecks {
 
         let bare = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context)
         if bare.proposals.count < 2 || bare.learningDecision(for: bare.proposals[0]) != nil { failures.append("bare collision learning") }
+        let barePhases = bare.lookupPhases
+        if barePhases.primary.isEmpty || barePhases.fallback.count < 2 ||
+            !barePhases.fallback.allSatisfy(\.isKnownProjectFallback) ||
+            !barePhases.fallback.contains(where: { $0.spec == .issue(tracker: .ppm, key: "GLINT-300") }) ||
+            !barePhases.fallback.contains(where: { $0.spec == .issue(tracker: .ppm, key: "PHAROS-300") }) {
+            failures.append("lazy fallback phase split")
+        }
+        if ResolutionLookupPolicy.shouldResolveFallback(primaryResolvedCount: 1) ||
+            !ResolutionLookupPolicy.shouldResolveFallback(primaryResolvedCount: 0) ||
+            ResolutionLookupPolicy.shouldResolveFallback(primaryResolvedCount: 0, isCancelled: true) {
+            failures.append("lazy fallback launch policy")
+        }
+        if !ProcessExecutionPolicy.shouldStop(isCancelled: true, elapsed: 0) ||
+            ProcessExecutionPolicy.shouldStop(isCancelled: false, elapsed: 0.1) ||
+            !ProcessExecutionPolicy.shouldStop(isCancelled: false, elapsed: ProcessExecutionPolicy.timeout) {
+            failures.append("process cancellation policy")
+        }
 
         let alias = EvidenceCandidatePlanner.plan(input: .init(lines: ["Pharos issue 203"]), context: context)
         if alias.proposals.first?.inferredProject != "PHAROS" { failures.append("nearby alias") }
