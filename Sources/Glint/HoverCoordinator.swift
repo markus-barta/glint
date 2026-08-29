@@ -8,6 +8,7 @@ import Foundation
     private weak var appState: AppState?
     private let ocr = ScreenOCR()
     private let resolver = TicketResolver()
+    private let scanFeedback = ScanFeedbackController()
     private let overlay: OverlayController
     private var timer: Timer?
     private var lastPosition = NSEvent.mouseLocation
@@ -17,8 +18,7 @@ import Foundation
     private var isScanning = false
     private var lastPermissionPollAt = Date.distantPast
     private var scanGeneration = 0
-    private var optionWasHeld = false
-    private var observedMode: TriggerMode
+    private var observedActivationPreferences: ActivationPreferences
     private var editState = PinnedEditState()
     private var editTask: Task<Void, Never>?
     private var directGeneration = 0
@@ -26,7 +26,7 @@ import Foundation
 
     init(appState: AppState) {
         self.appState = appState
-        observedMode = appState.triggerMode
+        observedActivationPreferences = appState.activationPreferences
 #if DEBUG
         overlay = OverlayController(allowsCapture: CommandLine.arguments.contains("--capture-live"))
 #else
@@ -100,31 +100,45 @@ import Foundation
             let granted = CGPreflightScreenCaptureAccess()
             if appState?.screenRecordingGranted != granted {
                 appState?.screenRecordingGranted = granted
-                if !granted { scanGeneration += 1; if !overlay.isSticky { overlay.hide() } }
+                if !granted {
+                    scanGeneration += 1
+                    scanFeedback.cancel()
+                    if !overlay.isSticky { overlay.hide() }
+                }
             }
             lastPermissionPollAt = Date()
         }
         if overlay.isSticky { return }
-        let mode = appState?.triggerMode ?? .dwell
-        if mode != observedMode {
-            observedMode = mode; scanGeneration += 1; dwellScannedPosition = nil; stableSince = Date(); optionWasHeld = false; overlay.hide()
+        let preferences = appState?.activationPreferences ?? .defaults
+        if preferences != observedActivationPreferences {
+            observedActivationPreferences = preferences
+            scanGeneration += 1
+            dwellScannedPosition = nil
+            stableSince = Date()
+            overlay.hide()
+            scanFeedback.cancel()
         }
         let position = NSEvent.mouseLocation
         if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
-            lastPosition = position; stableSince = Date(); dwellScannedPosition = nil; scanGeneration += 1; overlay.hide()
+            lastPosition = position; stableSince = Date(); dwellScannedPosition = nil; scanGeneration += 1; overlay.hide(); scanFeedback.cancel()
         }
         guard appState?.screenRecordingGranted == true else { return }
-        switch mode {
+        let heldModifiers = Self.hotKeyModifiers(from: NSEvent.modifierFlags)
+        guard HoverInvocationPolicy.shouldTrigger(
+            preferences: preferences,
+            stableDuration: Date().timeIntervalSince(stableSince),
+            dwellAlreadyScanned: dwellScannedPosition != nil,
+            heldModifiers: heldModifiers,
+            elapsedSinceLastScan: Date().timeIntervalSince(lastScanAt)
+        ) else { return }
+        switch preferences.mode {
+        case .off:
+            return
         case .dwell:
-            guard Date().timeIntervalSince(stableSince) >= 0.30, dwellScannedPosition == nil else { return }
             if trigger(at: position, presentation: .temporary, requiresStablePointer: true) { dwellScannedPosition = position }
-        case .option:
-            guard NSEvent.modifierFlags.contains(.option) else { optionWasHeld = false; return }
-            optionWasHeld = true
-            guard Date().timeIntervalSince(lastScanAt) >= 0.65 else { return }
+        case .hold:
             _ = trigger(at: position, presentation: .temporary, requiresStablePointer: true)
-        case .always:
-            guard Date().timeIntervalSince(lastScanAt) >= 0.65 else { return }
+        case .continuous:
             _ = trigger(at: position, presentation: .temporary, requiresStablePointer: true)
         }
     }
@@ -135,13 +149,47 @@ import Foundation
         guard CGPreflightScreenCaptureAccess() else { appState?.screenRecordingGranted = false; return false }
         let generation = scanGeneration
         isScanning = true; lastScanAt = Date(); appState?.activity = "Reading near cursor…"
+        if appState?.activationPreferences.scanFeedbackEnabled == true { scanFeedback.invoked(at: position) }
         if presentation == .pinned, overlay.isSticky { overlay.showPinnedStatus("Reading near pointer…") }
         Task {
             defer { finishScan() }
-            let recognized = await ocr.recognize(plan: plan)
-            let tokens = TokenParser.parse(recognized)
-            let lines = await resolve(tokens: tokens)
-            guard generation == scanGeneration else { return }
+            let fragments = await ocr.recognizeFragments(plan: plan)
+            let input = Self.contextInput(from: fragments)
+            let tokens = TokenParser.parse(input)
+            let foreground = ForegroundApplicationContext.capture()
+            let context = ResolutionContext.load()
+            let history = ResolutionHistoryStore.load()
+            let resolutionPlan = EvidenceCandidatePlanner.plan(
+                input: input,
+                context: context,
+                pinned: PinnedTicketContext.load(fallback: context),
+                foreground: foreground,
+                history: history
+            )
+            let anchorPairs = tokens.compactMap { token in
+                ScanFeedbackAnchor(token: token, fragments: fragments).map { (token.sourceOrder, $0) }
+            }
+            let anchorsBySourceOrder = anchorPairs.reduce(into: [Int: ScanFeedbackAnchor]()) { result, pair in
+                result[pair.0] = pair.1
+            }
+            let selectedAnchor = resolutionPlan.proposals.first.flatMap { anchorsBySourceOrder[$0.sourceOrder] }
+            if appState?.activationPreferences.scanFeedbackEnabled == true {
+                scanFeedback.recognized(anchors: anchorPairs.map(\.1), selected: selectedAnchor)
+            }
+            let resolved = await resolver.resolve(resolutionPlan)
+            guard generation == scanGeneration else { scanFeedback.cancel(); return }
+            let lines = Self.presentationLines(from: resolved)
+            if let first = resolved.first {
+                recordLearningIfEligible(first, in: resolutionPlan, foreground: foreground)
+            }
+            if appState?.activationPreferences.scanFeedbackEnabled == true {
+                if let first = resolved.first,
+                   let anchor = anchorsBySourceOrder[first.proposal.sourceOrder] ?? selectedAnchor {
+                    scanFeedback.resolved(anchor: anchor)
+                } else {
+                    scanFeedback.noMatch()
+                }
+            }
             if presentation == .pinned {
                 guard overlay.isSticky else { return }
                 if lines.isEmpty {
@@ -172,34 +220,17 @@ import Foundation
         _ = trigger(at: pending.0, presentation: pending.1, requiresStablePointer: false)
     }
 
-    private func resolve(tokens: [NearbyToken]) async -> [GlintLine] {
-        guard !tokens.isEmpty else { return [] }
+    private func recordLearningIfEligible(
+        _ resolved: ResolvedCandidate,
+        in plan: ResolutionPlan,
+        foreground: ForegroundApplicationContext?
+    ) {
+        guard let decision = plan.learningDecision(for: resolved.proposal) else { return }
+        ResolutionHistoryStore.record(decision, bundleIdentifier: foreground?.bundleIdentifier)
+        guard let project = resolved.proposal.inferredProject,
+              case let .issue(tracker, _) = resolved.proposal.spec else { return }
         var context = ResolutionContext.load()
-        var attempts: [GlintLine?] = []
-        var realMatchCount = 0
-        var candidateBudget = 16
-        for token in tokens.sorted(by: { tokenPriority($0) < tokenPriority($1) }).prefix(12) {
-            let specs = CandidatePlanner.candidates(for: token, context: context)
-            if specs.isEmpty { continue }
-            var matches: [GlintLine] = []
-            for spec in specs where candidateBudget > 0 {
-                candidateBudget -= 1
-                let line = await resolver.resolve(spec); attempts.append(line)
-                if let line { matches.append(line); realMatchCount += 1 }
-                if realMatchCount >= HoverResultPolicy.maximumResults { break }
-            }
-            if let first = matches.first,
-               let (project, _) = Self.projectAndNumber(from: first.key),
-               let actualTracker = Tracker(rawValue: first.source) {
-                context.saw(project: project, on: actualTracker)
-            }
-            if realMatchCount >= HoverResultPolicy.maximumResults || candidateBudget == 0 { break }
-        }
-        return HoverResultPolicy.visible(from: attempts)
-    }
-
-    private func tokenPriority(_ token: NearbyToken) -> Int {
-        switch token.kind { case .issueKey: return 0; case .hashNumber, .bareNumber: return 1; case .version: return 2 }
+        context.saw(project: project, on: tracker)
     }
 
     private var pinShortcutLabel: String { appState?.pinHotKey?.label ?? "Pin shortcut" }
@@ -357,7 +388,7 @@ import Foundation
         editTask?.cancel(); editTask = nil; editState.clear()
     }
     private func closePinned() {
-        scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned()
+        scanGeneration += 1; directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
         lastPosition = NSEvent.mouseLocation; stableSince = Date(); dwellScannedPosition = nil; appState?.activity = "Ready"
     }
 
@@ -365,5 +396,50 @@ import Foundation
         guard let token = TokenParser.parse([key]).first,
               case let .issueKey(project, number) = token.kind else { return nil }
         return (project, number)
+    }
+
+    private static func contextInput(from fragments: [RecognizedTextFragment]) -> OCRContextInput {
+        OCRContextInput(fragments: fragments.enumerated().map { index, fragment in
+            OCRContextFragment(
+                text: fragment.text,
+                lineIndex: index,
+                order: index,
+                confidence: Double(fragment.confidence),
+                region: OCRNormalizedRegion(
+                    x: fragment.normalizedBounds.minX,
+                    y: fragment.normalizedBounds.minY,
+                    width: fragment.normalizedBounds.width,
+                    height: fragment.normalizedBounds.height
+                )
+            )
+        })
+    }
+
+    private static func presentationLines(from resolved: [ResolvedCandidate]) -> [GlintLine] {
+        HoverResultPolicy.visible(from: resolved.map { result in
+            let provenance = result.proposal.provenanceSummary
+            let metadata = [result.line.metadata, provenance.isEmpty ? nil : "Matched: \(provenance)"]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+            return GlintLine(
+                key: result.line.key,
+                state: result.line.state,
+                title: result.line.title,
+                source: result.line.source,
+                metadata: metadata,
+                detail: result.line.detail
+            )
+        })
+    }
+
+    private static func hotKeyModifiers(from flags: NSEvent.ModifierFlags) -> HotKeyModifiers {
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        var result: HotKeyModifiers = []
+        if flags.contains(.command) { result.insert(.command) }
+        if flags.contains(.option) { result.insert(.option) }
+        if flags.contains(.control) { result.insert(.control) }
+        if flags.contains(.shift) { result.insert(.shift) }
+        return result
     }
 }

@@ -136,6 +136,94 @@ enum SelfTests {
             fputs("self-test failed: pinned ticket context\n", stderr)
             exit(1)
         }
+        var activation = ActivationPreferences.defaults
+        activation.mode = .dwell
+        activation.dwellMilliseconds = 475
+        activation.holdModifiers = [.control, .option]
+        activation.responsiveness = .fast
+        activation.scanFeedbackEnabled = false
+        activation.persist(defaults: defaults)
+        guard ActivationPreferences.load(defaults: defaults) == activation else {
+            fputs("self-test failed: activation preference persistence\n", stderr)
+            exit(1)
+        }
+        guard !HoverInvocationPolicy.shouldTrigger(
+            preferences: .init(mode: .off, dwellMilliseconds: 300, holdModifiers: [.option], responsiveness: .balanced, scanFeedbackEnabled: true),
+            stableDuration: 10, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 10
+        ), !HoverInvocationPolicy.shouldTrigger(
+            preferences: activation,
+            stableDuration: 0.474, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 10
+        ), HoverInvocationPolicy.shouldTrigger(
+            preferences: activation,
+            stableDuration: 0.475, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 10
+        ) else {
+            fputs("self-test failed: off/dwell invocation policy\n", stderr)
+            exit(1)
+        }
+        var holdActivation = activation
+        holdActivation.mode = .hold
+        guard !HoverInvocationPolicy.shouldTrigger(
+            preferences: holdActivation,
+            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 1
+        ), HoverInvocationPolicy.shouldTrigger(
+            preferences: holdActivation,
+            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [.control, .option, .shift], elapsedSinceLastScan: 1
+        ) else {
+            fputs("self-test failed: custom hold modifier invocation policy\n", stderr)
+            exit(1)
+        }
+        var continuousActivation = activation
+        continuousActivation.mode = .continuous
+        continuousActivation.responsiveness = .fast
+        guard !HoverInvocationPolicy.shouldTrigger(
+            preferences: continuousActivation,
+            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.349
+        ), HoverInvocationPolicy.shouldTrigger(
+            preferences: continuousActivation,
+            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.35
+        ) else {
+            fputs("self-test failed: continuous responsiveness invocation policy\n", stderr)
+            exit(1)
+        }
+        let presentation = PresentationPreferences(
+            alternativePreviews: 5,
+            textSize: .extraLarge,
+            width: .wide,
+            density: .detailed,
+            surface: .solid
+        )
+        presentation.persist(defaults: defaults)
+        guard PresentationPreferences.load(defaults: defaults) == presentation,
+              presentation.circularAlternativeIndices(count: 4, selectedIndex: 3) == [0, 1, 2] else {
+            fputs("self-test failed: ticket appearance persistence/navigation\n", stderr)
+            exit(1)
+        }
+        let anchorBounds = CGRect(x: 120, y: 340, width: 72, height: 18)
+        let fragment = RecognizedTextFragment(
+            text: "Open GLINT-24 now",
+            confidence: 0.98,
+            normalizedBounds: CGRect(x: 0.1, y: 0.2, width: 0.4, height: 0.1),
+            screenBounds: CGRect(x: 100, y: 330, width: 220, height: 28),
+            spans: [RecognizedTextSpan(
+                literal: "GLINT-24",
+                utf16Range: NSRange(location: 5, length: 8),
+                normalizedBounds: CGRect(x: 0.2, y: 0.2, width: 0.15, height: 0.08),
+                screenBounds: anchorBounds
+            )]
+        )
+        let anchorInput = OCRContextInput(fragments: [
+            OCRContextFragment(text: fragment.text, lineIndex: 0, order: 0, confidence: 0.98)
+        ])
+        guard let anchorToken = TokenParser.parse(anchorInput).first,
+              ScanFeedbackAnchor(token: anchorToken, fragments: [fragment])?.bounds == anchorBounds else {
+            fputs("self-test failed: token-anchored scan feedback\n", stderr)
+            exit(1)
+        }
+        let resolverFailures = ResolverDeterministicChecks.run()
+        guard resolverFailures.isEmpty else {
+            fputs("self-test failed: evidence resolver: \(resolverFailures.joined(separator: ", "))\n", stderr)
+            exit(1)
+        }
         print("GLINT self-tests passed")
         exit(0)
     }
