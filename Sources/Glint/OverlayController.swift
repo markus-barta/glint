@@ -1,15 +1,26 @@
 import AppKit
 import SwiftUI
 
-private enum OverlayMetrics {
-    static let width: CGFloat = 590
-    static let pinnedHeight: CGFloat = 250
-    static func temporaryHeight(for lines: [GlintLine]) -> CGFloat {
-        guard let first = lines.first else { return 0 }
-        let primary: CGFloat = first.detail.isEmpty ? 138 : 198
-        let secondaryCount = min(max(0, lines.count - 1), 2)
-        let secondary = secondaryCount == 0 ? 0 : 34 + CGFloat(secondaryCount * 48)
-        return primary + secondary + (lines.count > 1 ? 32 : 0) + 20
+enum OverlayMetrics {
+    static func preferredHeight(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences) -> CGFloat {
+        guard !lines.isEmpty else { return sticky ? 250 : 190 }
+        let primaryBase: CGFloat
+        switch preferences.density {
+        case .compact: primaryBase = 104
+        case .comfortable: primaryBase = 156
+        case .detailed: primaryBase = 184
+        }
+        let alternatives = min(preferences.alternativePreviews, max(0, lines.count - 1))
+        let hasMoreResults = lines.count > 1
+        let rail = hasMoreResults ? 27 + CGFloat(alternatives) * (43 * preferences.textSize.scale) : 0
+        let chrome: CGFloat = sticky ? 72 : (hasMoreResults ? 45 : 22)
+        return ceil(primaryBase * preferences.textSize.scale + rail + chrome)
+    }
+
+    static func size(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences, visibleFrame: CGRect) -> CGSize {
+        let width = min(preferences.width.points, max(360, visibleFrame.width - 24))
+        let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences)
+        return CGSize(width: width, height: min(preferred, max(190, visibleFrame.height - 24)))
     }
 }
 
@@ -18,7 +29,7 @@ private final class FocusablePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-private struct StatusPill: View {
+struct StatusPill: View {
     let state: String
     private var color: Color {
         switch state.lowercased() {
@@ -29,29 +40,30 @@ private struct StatusPill: View {
         }
     }
     var body: some View {
-        Text(state.replacingOccurrences(of: "_", with: " ").uppercased())
+        Text((state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "unknown" : state).replacingOccurrences(of: "_", with: " ").uppercased())
             .font(.caption2.weight(.bold)).foregroundStyle(color)
             .padding(.horizontal, 7).padding(.vertical, 4).background(color.opacity(0.12), in: Capsule())
     }
 }
 
-private struct PrimaryResultCard: View {
+struct PrimaryResultCard: View {
     let line: GlintLine
+    let preferences: PresentationPreferences
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: preferences.density == .compact ? 6 : 10) {
             HStack(spacing: 8) {
-                Text(line.key).font(.system(.headline, design: .monospaced).weight(.bold)).foregroundStyle(.tint)
+                Text(line.key).font(.system(size: 15 * preferences.textSize.scale, weight: .bold, design: .monospaced)).foregroundStyle(.tint)
                 StatusPill(state: line.state)
                 Spacer(minLength: 8)
                 Text(line.source.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             }
-            Text(line.title).font(.title3.weight(.semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            if !line.detail.isEmpty {
-                Text(line.detail).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            Text(line.title).font(.system(size: 17 * preferences.textSize.scale, weight: .semibold)).lineLimit(preferences.density == .detailed ? 3 : 2).fixedSize(horizontal: false, vertical: true)
+            if preferences.density.showsDetail, !line.detail.isEmpty {
+                Text(line.detail).font(.system(size: 13 * preferences.textSize.scale)).foregroundStyle(.secondary).lineLimit(preferences.density.detailLines).fixedSize(horizontal: false, vertical: true)
             }
-            if !line.metadata.isEmpty { Text(line.metadata).font(.caption).foregroundStyle(.tertiary).lineLimit(1) }
+            if preferences.density.showsMetadata, !line.metadata.isEmpty { Text(line.metadata).font(.caption).foregroundStyle(.tertiary).lineLimit(1) }
         }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(preferences.density.verticalPadding).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(nsColor: .controlBackgroundColor).opacity(0.82)))
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.accentColor).frame(width: 4).padding(.vertical, 10)
@@ -59,21 +71,25 @@ private struct PrimaryResultCard: View {
     }
 }
 
-private struct SecondaryResultRow: View {
+struct AlternativeResultRow: View {
+    let position: Int
     let line: GlintLine
+    let preferences: PresentationPreferences
     var body: some View {
-        HStack(spacing: 9) {
-            Text(line.key).font(.system(.callout, design: .monospaced).weight(.semibold)).foregroundStyle(.tint).frame(minWidth: 86, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(line.title).font(.callout.weight(.medium)).lineLimit(1)
-                if !line.metadata.isEmpty { Text(line.metadata).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-            }
-            Spacer(minLength: 4); StatusPill(state: line.state)
-        }.padding(.horizontal, 8).frame(height: 47)
+        HStack(spacing: 8) {
+            Text("\(position)")
+                .font(.caption2.monospacedDigit().weight(.bold)).foregroundStyle(.secondary)
+                .frame(width: 22, height: 22).background(Color.primary.opacity(0.07), in: Circle())
+            Text(line.key).font(.system(size: 12.5 * preferences.textSize.scale, weight: .semibold, design: .monospaced)).foregroundStyle(.tint).frame(minWidth: 78, alignment: .leading)
+            Text(line.title).font(.system(size: 12.5 * preferences.textSize.scale, weight: .medium)).lineLimit(1)
+            Spacer(minLength: 4)
+            Text(line.source.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            StatusPill(state: line.state)
+        }.padding(.horizontal, 8).frame(height: 43 * preferences.textSize.scale)
     }
 }
 
-private struct OverlayContent: View {
+struct OverlayContent: View {
     let lines: [GlintLine]
     let selectedIndex: Int
     let sticky: Bool
@@ -81,12 +97,15 @@ private struct OverlayContent: View {
     let statusText: String?
     let inputText: String?
     let projectPreview: String?
+    let preferences: PresentationPreferences
+    let constrainedSize: CGSize
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if sticky { pinnedHeader }
             if let line = selectedLine {
-                PrimaryResultCard(line: line)
+                PrimaryResultCard(line: line, preferences: preferences)
             } else {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.small)
@@ -94,20 +113,17 @@ private struct OverlayContent: View {
                     Text("Type a number, paste a ticket key, or point at one and use Inspect.").font(.callout).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, minHeight: 160)
             }
-            if sticky {
-                pinnedFooter
-            } else {
-                temporaryResults
-            }
+            alternativeResults
+            if sticky { pinnedFooter }
         }
         .padding(10)
-        .frame(width: OverlayMetrics.width, height: sticky ? OverlayMetrics.pinnedHeight : OverlayMetrics.temporaryHeight(for: lines), alignment: .top)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(width: constrainedSize.width, height: constrainedSize.height, alignment: .top)
+        .background { surface }
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.18)))
     }
 
     private var selectedLine: GlintLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
-    private var secondary: [GlintLine] { Array(lines.dropFirst()) }
+    private var alternativeIndices: [Int] { preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex) }
 
     private var pinnedHeader: some View {
         HStack(spacing: 8) {
@@ -124,13 +140,31 @@ private struct OverlayContent: View {
         }.contentShape(Rectangle()).padding(.horizontal, 8).frame(height: 24)
     }
 
-    @ViewBuilder private var temporaryResults: some View {
-        if !secondary.isEmpty {
-            HStack { Text("MORE MATCHES").font(.caption2.weight(.bold)).foregroundStyle(.secondary); Text("\(secondary.count)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary); Spacer(); if secondary.count > 2 { Text("Pin to browse").font(.caption2).foregroundStyle(.secondary) } }.padding(.horizontal, 8)
+    @ViewBuilder private var alternativeResults: some View {
+        if lines.count > 1 {
+            HStack {
+                Text("NEXT WITH SCROLL").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                Spacer()
+                let remaining = max(0, lines.count - 1 - alternativeIndices.count)
+                if remaining > 0 { Text("+\(remaining) more").font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
+            }.padding(.horizontal, 8)
             VStack(spacing: 0) {
-                ForEach(secondary.prefix(2)) { line in SecondaryResultRow(line: line); if line.id != secondary.prefix(2).last?.id { Divider().padding(.leading, 8) } }
-            }.frame(maxHeight: 96)
-            HStack(spacing: 6) { Image(systemName: "pin"); Text("\(shortcutLabel) opens the navigator") }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                ForEach(Array(alternativeIndices.enumerated()), id: \.element) { offset, index in
+                    AlternativeResultRow(position: offset + 1, line: lines[index], preferences: preferences)
+                    if offset < alternativeIndices.count - 1 { Divider().padding(.leading, 38) }
+                }
+            }
+            if !sticky {
+                HStack(spacing: 6) { Image(systemName: "pin"); Text("\(shortcutLabel) opens the navigator") }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+            }
+        }
+    }
+
+    @ViewBuilder private var surface: some View {
+        if preferences.surface == .system && !reduceTransparency {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial)
+        } else {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))
         }
     }
 
@@ -148,6 +182,30 @@ private struct OverlayContent: View {
     }
 }
 
+struct AppearanceCardPreview: View {
+    let preferences: PresentationPreferences
+    private let sampleLines = [
+        GlintLine(key: "GLINT-22", state: "in-progress", title: "A card that feels unmistakably yours", source: "ppm", metadata: "ticket · high priority", detail: "See the right amount of context, then scroll through alternatives with confidence."),
+        GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
+        GlintLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "github"),
+        GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
+        GlintLine(key: "GLINT-19", state: "open", title: "Add scan feedback", source: "ppm")
+    ]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let actualWidth = preferences.width.points
+            let scale = min(1, max(0.68, (proxy.size.width - 4) / actualWidth))
+            let height = OverlayMetrics.preferredHeight(lines: sampleLines, sticky: true, preferences: preferences)
+            OverlayContent(lines: sampleLines, selectedIndex: 0, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height))
+                .scaleEffect(scale, anchor: .topLeading)
+                .frame(width: actualWidth * scale, height: height * scale, alignment: .topLeading)
+                .accessibilityLabel("Live ticket card preview")
+        }
+        .frame(height: min(300, OverlayMetrics.preferredHeight(lines: sampleLines, sticky: true, preferences: preferences)))
+    }
+}
+
 @MainActor final class OverlayController: NSObject, NSWindowDelegate {
     var onCycleProject: ((Int) -> Void)?
     var onInput: ((PinnedInputEvent) -> Void)?
@@ -162,8 +220,10 @@ private struct OverlayContent: View {
     private var inputText: String?
     private var projectPreview: String?
     private var eventMonitor: Any?
+    private var preferenceObserver: NSObjectProtocol?
     private var lastScrollAt = Date.distantPast
     private var isPositioningProgrammatically = false
+    private var presentationPreferences = PresentationPreferences.load()
     private(set) var isSticky = false
 
     var isVisible: Bool { panel.isVisible }
@@ -183,9 +243,20 @@ private struct OverlayContent: View {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
+        preferenceObserver = NotificationCenter.default.addObserver(forName: .glintPresentationPreferencesDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.presentationPreferences = PresentationPreferences.load()
+                guard self.panel.isVisible else { return }
+                if self.isSticky { self.renderPinned(useSavedPosition: false) } else { self.renderTemporary() }
+            }
+        }
     }
 
-    deinit { if let eventMonitor { NSEvent.removeMonitor(eventMonitor) } }
+    deinit {
+        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        if let preferenceObserver { NotificationCenter.default.removeObserver(preferenceObserver) }
+    }
 
     func show(_ lines: [GlintLine], near mouse: CGPoint, shortcutLabel: String = "⌥⇧Space") {
         guard !lines.isEmpty else { hide(); return }
@@ -286,29 +357,29 @@ private struct OverlayContent: View {
     }
 
     private func renderTemporary() {
-        let size = CGSize(width: OverlayMetrics.width, height: OverlayMetrics.temporaryHeight(for: displayedLines))
         let visible = screen(containing: anchorMouse).visibleFrame
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, visibleFrame: visible)
         var origin = CGPoint(x: anchorMouse.x + 18, y: anchorMouse.y - size.height - 18)
         if origin.x + size.width > visible.maxX { origin.x = anchorMouse.x - size.width - 18 }
         if origin.y < visible.minY { origin.y = anchorMouse.y + 18 }
         origin = PanelPlacement.clamped(origin: origin, size: size, visibleFrame: visible)
-        panel.contentView = hostingView()
+        panel.contentView = hostingView(size: size)
         isPositioningProgrammatically = true; panel.setFrame(CGRect(origin: origin, size: size), display: true); isPositioningProgrammatically = false
     }
 
     private func renderPinned(useSavedPosition: Bool) {
         let shouldRemainFocused = panel.isKeyWindow
-        let size = CGSize(width: OverlayMetrics.width, height: OverlayMetrics.pinnedHeight)
         let targetScreen = useSavedPosition ? screen(containing: anchorMouse) : (panel.screen ?? screen(containing: NSEvent.mouseLocation))
         let visible = targetScreen.visibleFrame
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, visibleFrame: visible)
         let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : PanelPlacement.clamped(origin: panel.frame.origin, size: size, visibleFrame: visible)
-        panel.contentView = hostingView()
+        panel.contentView = hostingView(size: size)
         isPositioningProgrammatically = true; panel.setFrame(CGRect(origin: origin, size: size), display: true); isPositioningProgrammatically = false
         if shouldRemainFocused { panel.makeKey() }
     }
 
-    private func hostingView() -> NSView {
-        NSHostingView(rootView: OverlayContent(lines: displayedLines, selectedIndex: selectedIndex, sticky: isSticky, shortcutLabel: shortcutLabel, statusText: statusText, inputText: inputText, projectPreview: projectPreview))
+    private func hostingView(size: CGSize) -> NSView {
+        NSHostingView(rootView: OverlayContent(lines: displayedLines, selectedIndex: selectedIndex, sticky: isSticky, shortcutLabel: shortcutLabel, statusText: statusText, inputText: inputText, projectPreview: projectPreview, preferences: presentationPreferences, constrainedSize: size))
     }
 
     private func screen(containing point: CGPoint) -> NSScreen { NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens[0] }

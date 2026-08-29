@@ -47,6 +47,13 @@ private enum GlintBrand {
 
 @MainActor final class AppState: ObservableObject {
     @Published var triggerMode: TriggerMode { didSet { UserDefaults.standard.set(triggerMode.rawValue, forKey: "triggerMode") } }
+    @Published var activationPreferences: ActivationPreferences {
+        didSet {
+            activationPreferences.persist()
+            triggerMode = activationPreferences.legacyTriggerMode
+        }
+    }
+    @Published var presentationPreferences: PresentationPreferences { didSet { presentationPreferences.persist() } }
     @Published var inspectHotKey: HotKey? { didSet { GlintPreferences.save(inspectHotKey, key: "inspectHotKey"); configureHotKeys() } }
     @Published var pinHotKey: HotKey? { didSet { GlintPreferences.save(pinHotKey, key: "pinHotKey"); configureHotKeys() } }
     @Published var hotKeyError: String?
@@ -60,7 +67,10 @@ private enum GlintBrand {
 
     init() {
         let preferences = GlintPreferences.load()
-        triggerMode = preferences.triggerMode
+        let activation = ActivationPreferences.load()
+        activationPreferences = activation
+        presentationPreferences = PresentationPreferences.load()
+        triggerMode = activation.legacyTriggerMode
         inspectHotKey = preferences.inspectHotKey
         pinHotKey = preferences.pinHotKey
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
@@ -105,7 +115,12 @@ private enum GlintBrand {
         aboutWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    func resetHotKeys() { inspectHotKey = .inspect; pinHotKey = .pin }
+    func resetActivation() {
+        inspectHotKey = .inspect
+        activationPreferences = .defaults
+    }
+    func resetPinHotKey() { pinHotKey = .pin }
+    func resetAppearance() { presentationPreferences = .defaults }
 
     private func configureHotKeys() {
         guard coordinator != nil else { return }
@@ -122,9 +137,10 @@ private enum GlintBrand {
 
 @MainActor final class SettingsWindowController: NSWindowController {
     init(state: AppState) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 540), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 650), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "GLINT Settings"
         window.titlebarSeparatorStyle = .line
+        window.minSize = NSSize(width: 760, height: 580)
         window.isReleasedWhenClosed = false
         let hostingView = NSHostingView(rootView: SettingsView(state: state))
         hostingView.sizingOptions = []
@@ -278,14 +294,22 @@ private struct ShortcutRecorder: NSViewRepresentable {
 }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, shortcuts, privacy
+    case scanning, pinned, appearance, privacy
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .scanning: return "Scanning"
+        case .pinned: return "Pinned Card"
+        case .appearance: return "Appearance"
+        case .privacy: return "Privacy"
+        }
+    }
     var icon: String {
         switch self {
-        case .general: return "gearshape"
-        case .shortcuts: return "keyboard"
+        case .scanning: return "viewfinder"
+        case .pinned: return "pin"
+        case .appearance: return "paintbrush"
         case .privacy: return "hand.raised"
         }
     }
@@ -293,9 +317,18 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var state: AppState
-    @State private var selection: SettingsPane = .general
+    @State private var selection: SettingsPane = .scanning
     @State private var recorderMessage: String?
     @State private var cacheCleared = false
+    @State private var appearanceBeforeReset: PresentationPreferences?
+
+    init(state: AppState) {
+        self.state = state
+#if DEBUG
+        if CommandLine.arguments.contains("--settings-appearance-probe") { _selection = State(initialValue: .appearance) }
+        else if CommandLine.arguments.contains("--settings-pinned-probe") { _selection = State(initialValue: .pinned) }
+#endif
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -305,7 +338,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 760, height: 540)
+        .frame(minWidth: 760, idealWidth: 840, minHeight: 580, idealHeight: 650)
     }
 
     private var sidebar: some View {
@@ -356,42 +389,117 @@ struct SettingsView: View {
 
     @ViewBuilder private var detail: some View {
         switch selection {
-        case .general: generalPage
-        case .shortcuts: shortcutsPage
+        case .scanning: scanningPage
+        case .pinned: pinnedPage
+        case .appearance: appearancePage
         case .privacy: privacyPage
         }
     }
 
-    private var generalPage: some View {
-        SettingsPage(title: "General", subtitle: "Choose when GLINT reads and learn the pinned controls.") {
-            SettingsCard {
-                SettingsCardHeader(icon: "eye", title: "Automatic reading", subtitle: "When should GLINT inspect the ticket beneath your pointer?")
-                VStack(spacing: 4) {
-                    ForEach(TriggerMode.allCases) { mode in
-                        Button { state.triggerMode = mode } label: {
-                            HStack(spacing: 11) {
-                                Image(systemName: state.triggerMode == mode ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(state.triggerMode == mode ? Color.accentColor : Color.secondary)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(mode.label).fontWeight(.medium)
-                                    Text(triggerDescription(mode)).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .background(state.triggerMode == mode ? Color.accentColor.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                    }
-                }
+    private var scanningPage: some View {
+        SettingsPage(title: "How GLINT Activates", subtitle: "Scan once on command, with optional hands-free hover scanning.") {
+            SettingsCard(padding: 0) {
+                shortcutRow(icon: "cursorarrow.rays", title: "Inspect now", subtitle: "Always performs one scan beneath the pointer.", hotKey: $state.inspectHotKey, forbidden: state.pinHotKey)
             }
 
             SettingsCard {
-                SettingsCardHeader(icon: "pin", title: "Pinned navigator", subtitle: "Once pinned, the card becomes a fast ticket navigator.")
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+                SettingsCardHeader(icon: "cursorarrow.motionlines", title: "Hover activation", subtitle: "Optional. Choose when pointing alone should start a scan.")
+                Picker("Hover activation", selection: $state.activationPreferences.mode) {
+                    ForEach(HoverActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(state.activationPreferences.mode.subtitle)
+                    .font(.callout).foregroundStyle(.secondary)
+
+                activationDetail
+
+                Divider()
+                Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show scan feedback").fontWeight(.medium)
+                        Text("Briefly marks where GLINT is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sparkles").foregroundStyle(.tint).font(.title3)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Your setup").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(state.activationPreferences.effectiveSummary(inspectHotKey: state.inspectHotKey))
+                        .font(.headline).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(15)
+            .background(Color.accentColor.opacity(0.09), in: RoundedRectangle(cornerRadius: 11))
+            .accessibilityElement(children: .combine)
+
+            settingsFeedback
+            HStack {
+                Text("Changes apply immediately—there is no Save button.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Restore Activation Defaults") { state.resetActivation(); recorderMessage = "Activation defaults restored." }
+            }
+        }
+    }
+
+    @ViewBuilder private var activationDetail: some View {
+        switch state.activationPreferences.mode {
+        case .off:
+            EmptyView()
+        case .dwell:
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Dwell delay").fontWeight(.medium)
+                    Spacer()
+                    Text("\(state.activationPreferences.dwellMilliseconds) ms").font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { Double(state.activationPreferences.dwellMilliseconds) },
+                    set: { state.activationPreferences.dwellMilliseconds = Int($0.rounded() / 50) * 50 }
+                ), in: 150...1500, step: 50)
+                HStack { Text("Faster"); Spacer(); Text("More deliberate") }.font(.caption2).foregroundStyle(.tertiary)
+            }
+        case .hold:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Hold modifier combination").fontWeight(.medium)
+                HStack(spacing: 8) {
+                    modifierButton(.control, symbol: "⌃", name: "Control")
+                    modifierButton(.option, symbol: "⌥", name: "Option")
+                    modifierButton(.shift, symbol: "⇧", name: "Shift")
+                    modifierButton(.command, symbol: "⌘", name: "Command")
+                    Spacer()
+                }
+                Text("Select one or more modifiers. At least one stays enabled to prevent accidental scanning.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .continuous:
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Responsiveness").fontWeight(.medium)
+                    Spacer()
+                    Text("Checks every \(state.activationPreferences.responsiveness.detail)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Picker("Responsiveness", selection: $state.activationPreferences.responsiveness) {
+                    ForEach(ContinuousResponsiveness.allCases) { option in Text(option.title).tag(option) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
+            }
+        }
+    }
+
+    private var pinnedPage: some View {
+        SettingsPage(title: "Pinned Card", subtitle: "Keep a result on screen and navigate without leaving your work.") {
+            SettingsCard(padding: 0) {
+                shortcutRow(icon: "pin.fill", title: "Open pinned card", subtitle: "Open, focus, or close the pinned ticket card.", hotKey: $state.pinHotKey, forbidden: state.inspectHotKey)
+            }
+            settingsFeedback
+            SettingsCard {
+                SettingsCardHeader(icon: "computermouse", title: "Navigate in place", subtitle: "The pinned card stays focused while you browse or jump directly.")
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
                     interactionHint("Scroll", "Browse found tickets")
                     interactionHint("⇧ Scroll", "Try another project")
                     interactionHint("0–9", "Enter a ticket number")
@@ -400,33 +508,49 @@ struct SettingsView: View {
                     interactionHint("Esc", "Revert or close")
                 }
             }
+            HStack {
+                Text("Drag the handle at the top of a pinned card to place it on any screen.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Restore Shortcut Default") { state.resetPinHotKey(); recorderMessage = "Pinned-card shortcut restored." }
+            }
         }
     }
 
-    private var shortcutsPage: some View {
-        SettingsPage(title: "Keyboard Shortcuts", subtitle: "Control GLINT without breaking your flow.") {
-            SettingsCard(padding: 0) {
-                shortcutRow(icon: "cursorarrow.rays", title: "Inspect at pointer", subtitle: "Read the ticket beneath your cursor.", hotKey: $state.inspectHotKey, forbidden: state.pinHotKey)
-                Divider().padding(.leading, 66)
-                shortcutRow(icon: "pin.fill", title: "Open pinned card", subtitle: "Open, focus, or close the pinned ticket card.", hotKey: $state.pinHotKey, forbidden: state.inspectHotKey)
-            }
+    private var appearancePage: some View {
+        SettingsPage(title: "Card Appearance", subtitle: "Tune the ticket card without changing what GLINT finds.") {
+            AppearanceCardPreview(preferences: state.presentationPreferences)
+                .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Click a shortcut, then press a new key combination. Delete clears it; Esc keeps the current value.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let message = recorderMessage ?? state.hotKeyError {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
+            SettingsCard {
+                appearanceRow("Alternative previews", detail: "Shows the next wheel destinations below the primary ticket.") {
+                    HStack(spacing: 8) {
+                        Text("\(state.presentationPreferences.alternativePreviews)").font(.body.monospacedDigit()).frame(width: 20)
+                        Stepper("Alternative previews", value: $state.presentationPreferences.alternativePreviews, in: 0...5).labelsHidden()
+                    }
                 }
-                HStack {
-                    Button("Restore Defaults") { state.resetHotKeys() }
-                    Spacer()
-                }
+                Divider()
+                presetPicker("Text size", selection: $state.presentationPreferences.textSize, values: CardTextSize.allCases)
+                Divider()
+                presetPicker("Card width", selection: $state.presentationPreferences.width, values: CardWidth.allCases)
+                Divider()
+                presetPicker("Content", selection: $state.presentationPreferences.density, values: CardDensity.allCases)
+                Divider()
+                presetPicker("Surface", selection: $state.presentationPreferences.surface, values: CardSurface.allCases)
             }
-            .padding(.horizontal, 4)
+            HStack {
+                if let previous = appearanceBeforeReset {
+                    Label("Appearance defaults restored.", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                    Button("Undo") { state.presentationPreferences = previous; appearanceBeforeReset = nil }
+                } else {
+                    Text("The preview uses sample data and never contacts a tracker.").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Restore Appearance Defaults") {
+                    appearanceBeforeReset = state.presentationPreferences
+                    state.resetAppearance()
+                }
+                .disabled(state.presentationPreferences == .defaults)
+            }
         }
     }
 
@@ -481,6 +605,17 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var settingsFeedback: some View {
+        if let message = recorderMessage ?? state.hotKeyError {
+            Label(message, systemImage: state.hotKeyError == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(state.hotKeyError == nil ? Color.green : Color.orange)
+        } else {
+            Text("Click the shortcut, press a new combination, or press Delete to clear it. Esc keeps the current value.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private func shortcutRow(icon: String, title: String, subtitle: String, hotKey: Binding<HotKey?>, forbidden: HotKey?) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
@@ -498,6 +633,59 @@ struct SettingsView: View {
                 .frame(width: 148, height: 32)
         }
         .padding(16)
+    }
+
+    private func modifierButton(_ modifier: HotKeyModifiers, symbol: String, name: String) -> some View {
+        let enabled = state.activationPreferences.holdModifiers.contains(modifier)
+        return Button {
+            var modifiers = state.activationPreferences.holdModifiers
+            if enabled {
+                guard modifiers != modifier else { recorderMessage = "Keep at least one hover modifier enabled."; NSSound.beep(); return }
+                modifiers.remove(modifier)
+            } else {
+                modifiers.insert(modifier)
+            }
+            state.activationPreferences.holdModifiers = modifiers
+            recorderMessage = nil
+        } label: {
+            HStack(spacing: 5) { Text(symbol).font(.title3); Text(name).font(.callout) }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .foregroundStyle(enabled ? Color.white : Color.primary)
+                .background(enabled ? Color.accentColor : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name) hover modifier")
+        .accessibilityValue(enabled ? "On" : "Off")
+    }
+
+    private func appearanceRow<Content: View>(_ title: String, detail: String, @ViewBuilder control: () -> Content) -> some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).fontWeight(.medium)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 10)
+            control()
+        }
+    }
+
+    private func presetPicker<Value>(_ title: String, selection: Binding<Value>, values: [Value]) -> some View where Value: Hashable & Identifiable, Value.ID == String {
+        HStack {
+            Text(title).fontWeight(.medium)
+            Spacer()
+            Picker(title, selection: selection) {
+                ForEach(values) { value in Text(presetTitle(value)).tag(value) }
+            }
+            .labelsHidden().pickerStyle(.segmented).frame(width: 330)
+        }
+    }
+
+    private func presetTitle<Value>(_ value: Value) -> String {
+        if let value = value as? CardTextSize { return value.title }
+        if let value = value as? CardWidth { return value.title }
+        if let value = value as? CardDensity { return value.title }
+        if let value = value as? CardSurface { return value.title }
+        return String(describing: value)
     }
 
     private func interactionHint(_ key: String, _ action: String) -> some View {
@@ -523,13 +711,6 @@ struct SettingsView: View {
         }
     }
 
-    private func triggerDescription(_ mode: TriggerMode) -> String {
-        switch mode {
-        case .dwell: return "Read after your pointer rests briefly on a ticket."
-        case .option: return "Read only while you hold the Option key."
-        case .always: return "Continuously follow the ticket beneath your pointer."
-        }
-    }
 }
 
 private struct SettingsPage<Content: View>: View {
@@ -538,13 +719,17 @@ private struct SettingsPage<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.largeTitle.weight(.bold))
                 Text(subtitle).font(.title3).foregroundStyle(.secondary)
             }
-            content
-            Spacer(minLength: 0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) { content }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+            }
+            .scrollIndicators(.automatic)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 24)
@@ -628,7 +813,9 @@ private struct AboutView: View {
                 if let pin = state.pinHotKey { Text("Pin: \(pin.label)") }
             }
             Divider()
-            Picker("Trigger", selection: $state.triggerMode) { ForEach(TriggerMode.allCases) { mode in Text(mode.label).tag(mode) } }
+            Picker("Hover activation", selection: $state.activationPreferences.mode) {
+                ForEach(HoverActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
+            }
             Divider()
             if !state.screenRecordingGranted { Button("Grant Screen Recording…") { state.requestScreenRecording() } }
             Button("Settings…") { state.openSettings() }.keyboardShortcut(",")
