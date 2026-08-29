@@ -33,6 +33,28 @@ enum OverlayMetrics {
         return CGSize(width: width, height: min(preferred, max(190, visibleFrame.height - 24)))
     }
 
+    static func visibleAlternativeCount(
+        lines: [GlintLine],
+        selectedIndex: Int,
+        preferences: PresentationPreferences,
+        width: CGFloat,
+        totalHeight: CGFloat
+    ) -> Int {
+        guard !lines.isEmpty else { return 0 }
+        let requested = min(preferences.alternativePreviews, max(0, lines.count - 1))
+        guard requested > 0 else { return 0 }
+        let normalizedIndex = ((selectedIndex % lines.count) + lines.count) % lines.count
+        let primary = primaryHeight(line: lines[normalizedIndex], preferences: preferences, width: width)
+        let available = pinnedBodyHeight(totalHeight: totalHeight)
+        return stride(from: requested, through: 1, by: -1).first { count in
+            primary + sectionSpacing + alternativeBlockHeight(
+                count: count,
+                sticky: true,
+                preferences: preferences
+            ) <= available
+        } ?? 0
+    }
+
     static func primaryHeight(line: GlintLine, preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
         let cardPadding = preferences.density.verticalPadding
         let textWidth = max(160, width - outerPadding * 2 - cardPadding * 2)
@@ -170,10 +192,12 @@ struct OverlayContent: View {
         VStack(alignment: .leading, spacing: 8) {
             if sticky {
                 pinnedHeader
-                ScrollView(.vertical, showsIndicators: false) {
-                    resultBody
-                }
-                .frame(height: OverlayMetrics.pinnedBodyHeight(totalHeight: constrainedSize.height))
+                resultBody
+                .frame(
+                    height: OverlayMetrics.pinnedBodyHeight(totalHeight: constrainedSize.height),
+                    alignment: .top
+                )
+                .clipped()
                 pinnedFooter.fixedSize(horizontal: false, vertical: true)
             } else {
                 resultBody
@@ -186,7 +210,18 @@ struct OverlayContent: View {
     }
 
     private var selectedLine: GlintLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
-    private var alternativeIndices: [Int] { preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex) }
+    private var alternativeIndices: [Int] {
+        let indices = preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex)
+        guard sticky else { return indices }
+        let visibleCount = OverlayMetrics.visibleAlternativeCount(
+            lines: lines,
+            selectedIndex: selectedIndex,
+            preferences: preferences,
+            width: constrainedSize.width,
+            totalHeight: constrainedSize.height
+        )
+        return Array(indices.prefix(visibleCount))
+    }
 
     @ViewBuilder private var resultBody: some View {
         VStack(alignment: .leading, spacing: OverlayMetrics.sectionSpacing) {
@@ -286,6 +321,7 @@ struct AppearanceCardPreview: View {
                 .scaleEffect(scale, anchor: .topLeading)
                 .frame(width: actualWidth * scale, height: height * scale, alignment: .topLeading)
                 .accessibilityLabel("Live ticket card preview")
+                .frame(maxWidth: .infinity, alignment: .top)
         }
         .frame(height: min(300, OverlayMetrics.preferredHeight(lines: sampleLines, sticky: true, preferences: preferences)))
         .clipped()

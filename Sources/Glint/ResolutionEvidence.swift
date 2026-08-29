@@ -228,6 +228,7 @@ enum LearnedContextStore {
     static func clear(defaults: UserDefaults = .standard) {
         ResolutionHistoryStore.clear(defaults: defaults)
         ResolutionContext.clear(defaults: defaults)
+        PinnedTicketContext.clear(defaults: defaults)
     }
 }
 

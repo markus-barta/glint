@@ -56,6 +56,25 @@ enum DirectEntryResolutionPlanner {
     }
 }
 
+enum PinnedScanOwnershipPolicy {
+    static func shouldInvalidateForInput(alreadyClaimed: Bool) -> Bool {
+        !alreadyClaimed
+    }
+
+    static func permitsCompletion(
+        startedScanGeneration: Int,
+        currentScanGeneration: Int,
+        startedDirectGeneration: Int,
+        currentDirectGeneration: Int,
+        startedEditGeneration: Int,
+        currentEditGeneration: Int
+    ) -> Bool {
+        startedScanGeneration == currentScanGeneration &&
+            startedDirectGeneration == currentDirectGeneration &&
+            startedEditGeneration == currentEditGeneration
+    }
+}
+
 @MainActor final class HoverCoordinator {
     private enum Presentation { case temporary, pinned }
 
@@ -78,6 +97,8 @@ enum DirectEntryResolutionPlanner {
     private var editState = PinnedEditState()
     private var editTask: Task<Void, Never>?
     private var directGeneration = 0
+    private var pinnedEditGeneration = 0
+    private var pinnedInputClaimedCurrentScan = false
     private struct PendingManualScan {
         let position: CGPoint
         let presentation: Presentation
@@ -119,6 +140,7 @@ enum DirectEntryResolutionPlanner {
         }
         directGeneration += 1
         let presentation: Presentation = overlay.isSticky ? .pinned : .temporary
+        if presentation == .pinned { beginPinnedScanOwnership() }
         if isScanning {
             scanGeneration += 1
             activeScanTask?.cancel()
@@ -159,12 +181,14 @@ enum DirectEntryResolutionPlanner {
             return
         case .pinTemporary:
             resetEditing()
+            beginPinnedScanOwnership()
             overlay.pin(shortcutLabel: pinShortcutLabel)
             syncSelectionContext()
             appState?.activity = "Pinned"
             return
         case .openPinned:
             resetEditing()
+            beginPinnedScanOwnership()
         }
         overlay.openPinned(shortcutLabel: pinShortcutLabel)
         appState?.activity = "Pinned · reading near pointer…"
@@ -284,6 +308,9 @@ enum DirectEntryResolutionPlanner {
         guard !isScanning, let plan = CapturePlan.around(position) else { return false }
         guard CGPreflightScreenCaptureAccess() else { appState?.screenRecordingGranted = false; return false }
         let generation = scanGeneration
+        let startedDirectGeneration = directGeneration
+        let startedEditGeneration = pinnedEditGeneration
+        if presentation == .pinned { pinnedInputClaimedCurrentScan = false }
         // Capture once per accepted scan (never on the 20 Hz pointer timer). Keeping this
         // uncached preserves the foreground window title that belongs to this invocation.
         let foreground = ForegroundApplicationContext.capture()
@@ -364,7 +391,15 @@ enum DirectEntryResolutionPlanner {
                 }
             }
             if presentation == .pinned {
-                guard overlay.isSticky else { return }
+                guard overlay.isSticky,
+                      PinnedScanOwnershipPolicy.permitsCompletion(
+                        startedScanGeneration: generation,
+                        currentScanGeneration: scanGeneration,
+                        startedDirectGeneration: startedDirectGeneration,
+                        currentDirectGeneration: directGeneration,
+                        startedEditGeneration: startedEditGeneration,
+                        currentEditGeneration: pinnedEditGeneration
+                      ) else { return }
                 if lines.isEmpty {
                     overlay.showPinnedStatus(tokens.isEmpty ? "No nearby ticket token" : "No real ticket match")
                     appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
@@ -457,6 +492,11 @@ enum DirectEntryResolutionPlanner {
     }
 
     private func handleInput(_ event: PinnedInputEvent) {
+        if eventClaimsPinnedResults(event) {
+            pinnedEditGeneration += 1
+            directGeneration += 1
+            claimPinnedInputOwnershipIfNeeded()
+        }
         switch event {
         case let .digits(value):
             editState.appendDigits(value)
@@ -544,6 +584,7 @@ enum DirectEntryResolutionPlanner {
     }
 
     private func resolveDirect(project: ProjectDescriptor, number: Int) {
+        claimPinnedInputOwnershipIfNeeded()
         editTask?.cancel(); directGeneration += 1
         let generation = directGeneration
         let key = "\(project.key)-\(number)"
@@ -579,6 +620,28 @@ enum DirectEntryResolutionPlanner {
     private func resetEditing() {
         editTask?.cancel(); editTask = nil; editState.clear()
     }
+
+    private func beginPinnedScanOwnership() {
+        pinnedInputClaimedCurrentScan = false
+    }
+
+    private func claimPinnedInputOwnershipIfNeeded() {
+        guard PinnedScanOwnershipPolicy.shouldInvalidateForInput(
+            alreadyClaimed: pinnedInputClaimedCurrentScan
+        ) else { return }
+        pinnedInputClaimedCurrentScan = true
+        scanGeneration += 1
+        activeScanTask?.cancel()
+        pendingManualScan = nil
+        scanFeedback.cancel()
+        appState?.activity = "Pinned · editing"
+    }
+
+    private func eventClaimsPinnedResults(_ event: PinnedInputEvent) -> Bool {
+        if case .escape = event { return false }
+        return true
+    }
+
     private func closePinned() {
         clearManualInspection()
         pendingManualScan = nil

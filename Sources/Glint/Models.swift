@@ -166,6 +166,11 @@ struct PinnedTicketContext: Equatable, Sendable {
         if let number { defaults.set(number, forKey: "pinnedNumber") }
         else { defaults.removeObject(forKey: "pinnedNumber") }
     }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: "pinnedProject")
+        defaults.removeObject(forKey: "pinnedNumber")
+    }
 }
 
 enum CandidateSpec: Hashable, Sendable {

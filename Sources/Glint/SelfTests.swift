@@ -225,6 +225,37 @@ enum SelfTests {
            !QueuedScanLifecyclePolicy.shouldRetargetAfterPointerMovement(source: .automaticHover) else {
             fputs("self-test failed: queued scan generation lifecycle\n", stderr); exit(1)
         }
+        let normalPinnedCompletion = PinnedScanOwnershipPolicy.permitsCompletion(
+            startedScanGeneration: 40,
+            currentScanGeneration: 40,
+            startedDirectGeneration: 7,
+            currentDirectGeneration: 7,
+            startedEditGeneration: 3,
+            currentEditGeneration: 3
+        )
+        let lateResolvedCompletion = PinnedScanOwnershipPolicy.permitsCompletion(
+            startedScanGeneration: 40,
+            currentScanGeneration: 41,
+            startedDirectGeneration: 7,
+            currentDirectGeneration: 9,
+            startedEditGeneration: 3,
+            currentEditGeneration: 4
+        )
+        let lateNoMatchCompletion = PinnedScanOwnershipPolicy.permitsCompletion(
+            startedScanGeneration: 40,
+            currentScanGeneration: 41,
+            startedDirectGeneration: 7,
+            currentDirectGeneration: 8,
+            startedEditGeneration: 3,
+            currentEditGeneration: 4
+        )
+        guard PinnedScanOwnershipPolicy.shouldInvalidateForInput(alreadyClaimed: false),
+              !PinnedScanOwnershipPolicy.shouldInvalidateForInput(alreadyClaimed: true),
+              normalPinnedCompletion,
+              !lateResolvedCompletion,
+              !lateNoMatchCompletion else {
+            fputs("self-test failed: pinned input owns late scan results/no-match\n", stderr); exit(1)
+        }
         guard ScanCuePolicy.showsInvoked(for: .explicitCommand),
               !ScanCuePolicy.showsInvoked(for: .automaticHover),
               ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: false, hasAnchor: false) == .noMatch,
@@ -386,6 +417,55 @@ enum SelfTests {
               pinnedBody + OverlayMetrics.pinnedReservedChromeHeight <= constrainedOverlay.height + 0.001 else {
             fputs("self-test failed: footer-safe max-stress pinned layout\n", stderr); exit(1)
         }
+        let shortStressLines = [
+            GlintLine(
+                key: "GLINT-24",
+                state: "in-progress",
+                title: "Make detailed ticket cards adapt precisely to long real-world titles without hiding alternatives",
+                source: "ppm",
+                metadata: "ticket · high priority · release 0.3",
+                detail: "A deliberately long tracker detail verifies that the primary result remains legible while every alternative row is either fully visible or omitted from the rail."
+            )
+        ] + Array(previewLines.prefix(5))
+        let shortVisibleFrame = CGRect(x: 0, y: 0, width: 900, height: 500)
+        let shortOverlay = OverlayMetrics.size(
+            lines: shortStressLines,
+            sticky: true,
+            preferences: presentation,
+            visibleFrame: shortVisibleFrame
+        )
+        let shortAlternativeCount = OverlayMetrics.visibleAlternativeCount(
+            lines: shortStressLines,
+            selectedIndex: 0,
+            preferences: presentation,
+            width: shortOverlay.width,
+            totalHeight: shortOverlay.height
+        )
+        let shortPrimaryHeight = OverlayMetrics.primaryHeight(
+            line: shortStressLines[0],
+            preferences: presentation,
+            width: shortOverlay.width
+        )
+        let shortBodyBudget = OverlayMetrics.pinnedBodyHeight(totalHeight: shortOverlay.height)
+        let shortUsedHeight = shortPrimaryHeight + OverlayMetrics.sectionSpacing +
+            OverlayMetrics.alternativeBlockHeight(
+                count: shortAlternativeCount,
+                sticky: true,
+                preferences: presentation
+            )
+        let shortNextHeight = shortPrimaryHeight + OverlayMetrics.sectionSpacing +
+            OverlayMetrics.alternativeBlockHeight(
+                count: shortAlternativeCount + 1,
+                sticky: true,
+                preferences: presentation
+            )
+        guard shortAlternativeCount > 0,
+              shortAlternativeCount < presentation.alternativePreviews,
+              shortPrimaryHeight <= shortBodyBudget,
+              shortUsedHeight <= shortBodyBudget,
+              shortNextHeight > shortBodyBudget else {
+            fputs("self-test failed: short-display whole-row alternative budget\n", stderr); exit(1)
+        }
         let negativeDisplay = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
         let negativeScreen = CGRect(x: -1920, y: -120, width: 1920, height: 1080)
         let syntheticCapture = CapturePlan(
@@ -479,7 +559,9 @@ enum SelfTests {
         guard ResolutionHistoryStore.load(defaults: defaults).entries.isEmpty,
               defaults.object(forKey: "lastSeenTracker") == nil,
               defaults.object(forKey: "lastPPMProject") == nil,
-              defaults.object(forKey: "lastPMAProject") == nil else {
+              defaults.object(forKey: "lastPMAProject") == nil,
+              defaults.object(forKey: "pinnedProject") == nil,
+              defaults.object(forKey: "pinnedNumber") == nil else {
             fputs("self-test failed: learned context clear\n", stderr); exit(1)
         }
         let resolverFailures = ResolverDeterministicChecks.run()
