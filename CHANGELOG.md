@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-08-30
+
+- Restore the saved pinned card after app startup settles, so Nuncid returns safely and reliably to your workspace.
+
 ## [0.5.2] - 2026-08-30
 
 - Make every row follow one continuous scroll direction, with a centered pinned header and direct close, project, and result controls.

@@ -21,6 +21,19 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.5.3",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "A steady return",
+            headline: "Your pinned card comes back safely.",
+            intro: "Nuncid now lets app startup settle before restoring a saved pinned card, keeping every return to your workspace dependable.",
+            items: [
+                ReleaseNoteItem(label: "A calm launch", detail: "The restored card appears just after startup instead of competing with the interface while it is still being created."),
+                ReleaseNoteItem(label: "Right where you left it", detail: "Your remembered pin state, position, size, project, and result remain ready for the next session."),
+                ReleaseNoteItem(label: "Your choice stays yours", detail: "Restore pinned remains enabled when you chose it; the safer timing needs no preference reset or workaround.")
+            ]
+        ),
+        ReleaseNote(
             version: "0.5.2",
             isoDate: "2026-08-30",
             date: "30 August 2026",
