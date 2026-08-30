@@ -81,6 +81,23 @@ private func roundedImage(_ value: NSImage, in rect: NSRect, radius: CGFloat) {
     NSGraphicsContext.restoreGraphicsState()
 }
 
+private func roundedContainedImage(_ value: NSImage, in rect: NSRect, radius: CGFloat) {
+    let sourceRatio = value.size.width / value.size.height
+    let targetRatio = rect.width / rect.height
+    let fitted: NSRect
+    if sourceRatio > targetRatio {
+        let height = rect.width / sourceRatio
+        fitted = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+    } else {
+        let width = rect.height * sourceRatio
+        fitted = NSRect(x: rect.midX - width / 2, y: rect.minY, width: width, height: rect.height)
+    }
+    NSGraphicsContext.saveGraphicsState()
+    NSBezierPath(roundedRect: fitted, xRadius: radius, yRadius: radius).addClip()
+    value.draw(in: fitted, from: NSRect(origin: .zero, size: value.size), operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+    NSGraphicsContext.restoreGraphicsState()
+}
+
 private func panel(_ rect: NSRect, radius: CGFloat = 28, fill: NSColor = NSColor(calibratedWhite: 0.03, alpha: 0.72), shadow: Bool = true) {
     NSGraphicsContext.saveGraphicsState()
     if shadow {
@@ -149,10 +166,10 @@ private func chip(_ label: String, x: CGFloat, y: CGFloat) -> CGFloat {
 }
 
 private let scanField = image("docs/screenshots/glint-scan-field.png")
-private let icon = image("Sources/Glint/Resources/Brand/glint-app-icon-1024.png")
-private let card = image("docs/screenshots/pinned-card-0.3.1.png")
-private let scanning = image("docs/screenshots/settings-scanning-0.3.2.png")
-private let appearance = image("docs/screenshots/settings-appearance-0.3.2.png")
+private let icon = image("Sources/Nuncid/Resources/Brand/nuncid-app-icon-1024.png")
+private let card = image("docs/screenshots/pinned-card-0.4.0.png")
+private let scanning = image("docs/screenshots/settings-scanning-0.4.0.png")
+private let appearance = image("docs/screenshots/settings-appearance-0.4.0.png")
 
 private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1600, height: 900))
@@ -162,7 +179,7 @@ private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
     )!.draw(in: NSRect(x: 0, y: 0, width: 1600, height: 900), angle: 0)
 
     roundedImage(icon, in: NSRect(x: 82, y: 72, width: 76, height: 76), radius: 18)
-    text("GLINT", in: NSRect(x: 178, y: 89, width: 220, height: 42), size: 31, weight: .bold)
+    text("Nuncid", in: NSRect(x: 178, y: 89, width: 220, height: 42), size: 31, weight: .bold)
     eyebrow("Context at the speed of sight", at: NSPoint(x: 84, y: 227))
     text("Point at a ticket.\nKnow what matters.", in: NSRect(x: 80, y: 274, width: 690, height: 178), size: 67, weight: .bold, lineHeight: 70, tracking: -2.7)
     text("A private macOS menu-bar utility that turns nearby issue references into useful, navigable cards.", in: NSRect(x: 84, y: 478, width: 590, height: 112), size: 25, color: NSColor(calibratedRed: 0.75, green: 0.81, blue: 0.89, alpha: 1), lineHeight: 36)
@@ -171,17 +188,17 @@ private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
         chipX += chip(label, x: chipX, y: 631) + 12
     }
 
-    let outer = NSRect(x: 798, y: 151, width: 760, height: 592)
+    let outer = NSRect(x: 798, y: 260, width: 760, height: 380)
     panel(outer, radius: 30)
-    roundedImage(card, in: outer.insetBy(dx: 11, dy: 11), radius: 21)
+    roundedContainedImage(card, in: outer.insetBy(dx: 11, dy: 11), radius: 21)
 }
-save(hero, name: "hero-0.3.1.png")
+save(hero, name: "hero-0.4.0.png")
 
 private let workflow = withCanvas(size: NSSize(width: 1600, height: 920)) {
     NSGradient(colors: [NSColor(calibratedRed: 0.025, green: 0.045, blue: 0.08, alpha: 1), NSColor(calibratedRed: 0.055, green: 0.09, blue: 0.14, alpha: 1)])!.draw(in: NSRect(x: 0, y: 0, width: 1600, height: 920), angle: -25)
     eyebrow("One gesture, full context", at: NSPoint(x: 76, y: 63))
     text("Scan. Resolve. Keep moving.", in: NSRect(x: 74, y: 106, width: 760, height: 66), size: 52, weight: .bold, tracking: -2)
-    text("Invoke GLINT at the pointer. It ranks the best source and keeps alternatives one scroll away.", in: NSRect(x: 1000, y: 72, width: 510, height: 95), size: 20, color: Palette.muted, alignment: .right, lineHeight: 29)
+    text("Invoke Nuncid at the pointer. It ranks the best source and keeps alternatives one scroll away.", in: NSRect(x: 1000, y: 72, width: 510, height: 95), size: 20, color: Palette.muted, alignment: .right, lineHeight: 29)
 
     let stage = NSRect(x: 74, y: 202, width: 1452, height: 648)
     panel(stage, radius: 30, fill: NSColor(calibratedRed: 0.035, green: 0.06, blue: 0.10, alpha: 1))
@@ -202,7 +219,7 @@ private let workflow = withCanvas(size: NSSize(width: 1600, height: 920)) {
     NSBezierPath(roundedRect: token, xRadius: 10, yRadius: 10).fill()
     NSColor(calibratedRed: 0.04, green: 0.52, blue: 1, alpha: 0.45).setStroke()
     NSBezierPath(roundedRect: token.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10).stroke()
-    text("GLINT-42", in: NSRect(x: 158, y: 458, width: 140, height: 30), size: 23, weight: .bold, color: NSColor(calibratedRed: 0.45, green: 0.70, blue: 1, alpha: 1))
+    text("NUNCID-29", in: NSRect(x: 158, y: 458, width: 170, height: 30), size: 23, weight: .bold, color: NSColor(calibratedRed: 0.45, green: 0.70, blue: 1, alpha: 1))
     Palette.blue.withAlphaComponent(0.92).setStroke()
     let ripple = NSBezierPath(ovalIn: NSRect(x: 108, y: 423, width: 120, height: 120))
     ripple.lineWidth = 3
@@ -215,28 +232,28 @@ private let workflow = withCanvas(size: NSSize(width: 1600, height: 920)) {
     text("The first hit leads.", in: NSRect(x: 141, y: 677, width: 340, height: 34), size: 25, weight: .bold)
     text("Rich context up front. Ranked alternatives stay visible before you scroll.", in: NSRect(x: 141, y: 718, width: 330, height: 90), size: 18, color: Palette.muted, lineHeight: 27)
 
-    let result = NSRect(x: 669, y: 224, width: 780, height: 607)
+    let result = NSRect(x: 669, y: 330, width: 780, height: 388)
     panel(result, radius: 24)
-    roundedImage(card, in: result.insetBy(dx: 9, dy: 9), radius: 16)
+    roundedContainedImage(card, in: result.insetBy(dx: 9, dy: 9), radius: 16)
 }
-save(workflow, name: "workflow-0.3.1.png")
+save(workflow, name: "workflow-0.4.0.png")
 
 private let settingsShot = withCanvas(size: NSSize(width: 1600, height: 1040)) {
     NSGradient(colors: [NSColor(calibratedRed: 0.02, green: 0.035, blue: 0.065, alpha: 1), NSColor(calibratedRed: 0.06, green: 0.09, blue: 0.14, alpha: 1)])!.draw(in: NSRect(x: 0, y: 0, width: 1600, height: 1040), angle: -35)
     eyebrow("Made to fit your flow", at: NSPoint(x: 74, y: 61))
     text("Powerful, without becoming fussy.", in: NSRect(x: 72, y: 103, width: 900, height: 70), size: 52, weight: .bold, tracking: -2)
-    text("Choose exactly how GLINT activates and how much context its card shows. Every change applies immediately.", in: NSRect(x: 1030, y: 66, width: 490, height: 100), size: 20, color: Palette.muted, alignment: .right, lineHeight: 29)
+    text("Choose exactly how Nuncid activates and how much context its card shows. Every change applies immediately.", in: NSRect(x: 1030, y: 66, width: 490, height: 100), size: 20, color: Palette.muted, alignment: .right, lineHeight: 29)
 
-    let left = NSRect(x: 72, y: 210, width: 710, height: 660)
+    let left = NSRect(x: 72, y: 235, width: 710, height: 611)
     panel(left, radius: 25)
-    roundedImage(scanning, in: left.insetBy(dx: 9, dy: 9), radius: 17)
-    let right = NSRect(x: 818, y: 210, width: 710, height: 660)
+    roundedContainedImage(scanning, in: left.insetBy(dx: 9, dy: 9), radius: 17)
+    let right = NSRect(x: 818, y: 235, width: 710, height: 611)
     panel(right, radius: 25)
-    roundedImage(appearance, in: right.insetBy(dx: 9, dy: 9), radius: 17)
+    roundedContainedImage(appearance, in: right.insetBy(dx: 9, dy: 9), radius: 17)
     _ = chip("Any safe global shortcut", x: 102, y: 906)
     _ = chip("Live, local preview", x: 1316, y: 906)
 }
-save(settingsShot, name: "settings-showcase-0.3.2.png")
+save(settingsShot, name: "settings-showcase-0.4.0.png")
 
 private let social = withCanvas(size: NSSize(width: 1280, height: 640)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1280, height: 640))
@@ -247,9 +264,9 @@ private let social = withCanvas(size: NSSize(width: 1280, height: 640)) {
     roundedImage(icon, in: NSRect(x: 58, y: 50, width: 65, height: 65), radius: 15)
     text("Ticket context,\nright where you point.", in: NSRect(x: 56, y: 164, width: 570, height: 150), size: 55, weight: .bold, lineHeight: 58, tracking: -2.2)
     text("Private, instant issue lookup for macOS.", in: NSRect(x: 60, y: 340, width: 500, height: 64), size: 22, color: NSColor(calibratedRed: 0.74, green: 0.81, blue: 0.90, alpha: 1))
-    eyebrow("GLINT", at: NSPoint(x: 60, y: 474))
-    let cardRect = NSRect(x: 650, y: 83, width: 590, height: 459)
+    eyebrow("Nuncid · NUN-sid", at: NSPoint(x: 60, y: 474))
+    let cardRect = NSRect(x: 650, y: 170, width: 590, height: 294)
     panel(cardRect, radius: 24)
-    roundedImage(card, in: cardRect.insetBy(dx: 9, dy: 9), radius: 16)
+    roundedContainedImage(card, in: cardRect.insetBy(dx: 9, dy: 9), radius: 16)
 }
-save(social, name: "social-preview-0.3.1.png")
+save(social, name: "social-preview-0.4.0.png")

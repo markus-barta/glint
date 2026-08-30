@@ -40,12 +40,12 @@ struct HotKey: Codable, Hashable {
     }
 }
 
-struct GlintPreferences: Equatable {
+struct NuncidPreferences: Equatable {
     var inspectHotKey: HotKey?
     var pinHotKey: HotKey?
 
-    static func load(defaults: UserDefaults = .standard) -> GlintPreferences {
-        return GlintPreferences(
+    static func load(defaults: UserDefaults = .standard) -> NuncidPreferences {
+        return NuncidPreferences(
             inspectHotKey: decodeHotKey(key: "inspectHotKey", fallback: .inspect, defaults: defaults),
             pinHotKey: decodeHotKey(key: "pinHotKey", fallback: .pin, defaults: defaults)
         )
@@ -71,7 +71,7 @@ struct GlintPreferences: Equatable {
     }
 }
 
-struct GlintLine: Codable, Hashable, Identifiable, Sendable {
+struct TicketLine: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let key: String
     let state: String
@@ -94,7 +94,7 @@ struct GlintLine: Codable, Hashable, Identifiable, Sendable {
 enum HoverResultPolicy {
     static let maximumResults = 12
 
-    static func visible(from attempts: [GlintLine?], limit: Int = maximumResults) -> [GlintLine] {
+    static func visible(from attempts: [TicketLine?], limit: Int = maximumResults) -> [TicketLine] {
         var seen = Set<String>()
         return attempts.compactMap { $0 }
             .filter { !$0.key.isEmpty && seen.insert($0.id).inserted }
@@ -250,7 +250,8 @@ struct ProjectDescriptor: Hashable, Identifiable {
     var id: String { key }
 
     static let known: [ProjectDescriptor] = [
-        .init(key: "GLINT", name: "Glint", aliases: ["glint", "ticket lens"], tracker: .ppm),
+        .init(key: "NUNCID", name: "Nuncid", aliases: ["nuncid", "nun sid", "identify now", "ticket lens"], tracker: .ppm),
+        .init(key: "GLINT", name: "Glint (historical)", aliases: ["glint"], tracker: .ppm),
         .init(key: "HAUSV", name: "Hausverwaltung", aliases: ["hausv", "hausverwaltung"], tracker: .ppm),
         .init(key: "INSPR", name: "Inspr", aliases: ["inspr", "inspire"], tracker: .ppm),
         .init(key: "JANUS", name: "Janus", aliases: ["janus"], tracker: .ppm),

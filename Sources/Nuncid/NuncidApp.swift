@@ -2,11 +2,11 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-enum GlintBrand {
+enum NuncidBrand {
     private static var resourceBundles: [Bundle] {
         var bundles = [Bundle.main]
         if let executable = Bundle.main.executableURL {
-            let sibling = executable.deletingLastPathComponent().appendingPathComponent("Glint_Glint.bundle")
+            let sibling = executable.deletingLastPathComponent().appendingPathComponent("Nuncid_Nuncid.bundle")
             if let bundle = Bundle(url: sibling) { bundles.append(bundle) }
         }
         return bundles
@@ -20,12 +20,12 @@ enum GlintBrand {
         return nil
     }
     static var appIcon: NSImage {
-        image(named: "glint-app-icon-1024") ?? NSApp.applicationIconImage
+        image(named: "nuncid-app-icon-1024") ?? NSApp.applicationIconImage
     }
     static var menuBarIcon: NSImage {
         let targetSize = NSSize(width: 18, height: 18)
         let combined = NSImage(size: targetSize)
-        for name in ["glint-menubar-18", "glint-menubar-36"] {
+        for name in ["nuncid-menubar-18", "nuncid-menubar-36"] {
             guard let source = image(named: name) else { continue }
             for representation in source.representations {
                 representation.size = targetSize
@@ -33,7 +33,7 @@ enum GlintBrand {
             }
         }
         let result = combined.representations.isEmpty
-            ? NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "GLINT")!
+            ? NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "Nuncid")!
             : combined
         result.isTemplate = true
         return result
@@ -57,8 +57,8 @@ enum GlintBrand {
         }
     }
     @Published var presentationPreferences: PresentationPreferences { didSet { presentationPreferences.persist() } }
-    @Published var inspectHotKey: HotKey? { didSet { GlintPreferences.save(inspectHotKey, key: "inspectHotKey"); configureHotKeys() } }
-    @Published var pinHotKey: HotKey? { didSet { GlintPreferences.save(pinHotKey, key: "pinHotKey"); configureHotKeys() } }
+    @Published var inspectHotKey: HotKey? { didSet { NuncidPreferences.save(inspectHotKey, key: "inspectHotKey"); configureHotKeys() } }
+    @Published var pinHotKey: HotKey? { didSet { NuncidPreferences.save(pinHotKey, key: "pinHotKey"); configureHotKeys() } }
     @Published var hotKeyError: String?
     @Published var screenRecordingGranted: Bool
     @Published var activity = "Ready"
@@ -72,7 +72,7 @@ enum GlintBrand {
     private var versionHistoryWindowController: VersionHistoryWindowController?
 
     init() {
-        let preferences = GlintPreferences.load()
+        let preferences = NuncidPreferences.load()
         var activation = ActivationPreferences.load()
         var presentation = PresentationPreferences.load()
 #if DEBUG
@@ -120,7 +120,7 @@ enum GlintBrand {
         if CommandLine.arguments.contains("--settings-probe") || CommandLine.arguments.contains("--settings-capture-probe") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
-        if CommandLine.arguments.contains("--about-probe") {
+        if CommandLine.arguments.contains("--about-probe") || CommandLine.arguments.contains("--about-capture-probe") {
             DispatchQueue.main.async { [weak self] in self?.openAbout() }
         }
         if CommandLine.arguments.contains("--version-history-probe") ||
@@ -164,6 +164,15 @@ enum GlintBrand {
         aboutWindowController?.showWindow(nil)
         aboutWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+#if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--about-capture-probe"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.aboutWindowController?.captureProbe(to: url)
+            }
+        }
+#endif
     }
     func openVersionHistory() {
         if versionHistoryWindowController == nil { versionHistoryWindowController = VersionHistoryWindowController() }
@@ -213,7 +222,7 @@ enum GlintBrand {
 
     private func configureHotKeys() {
         guard coordinator != nil else { return }
-        if GlintPreferences.shortcutsConflict(inspect: inspectHotKey, pin: pinHotKey), let inspectHotKey {
+        if NuncidPreferences.shortcutsConflict(inspect: inspectHotKey, pin: pinHotKey), let inspectHotKey {
             hotKeyMonitor.configure(inspect: inspectHotKey, pin: nil)
             hotKeyError = ["Inspect and Pin must use different shortcuts.", hotKeyMonitor.errors[.inspect]]
                 .compactMap { $0 }.joined(separator: " ")
@@ -232,7 +241,7 @@ enum GlintBrand {
         let captureHeight: CGFloat = 720
         #endif
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: captureHeight), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "GLINT Settings"
+        window.title = "Nuncid Settings"
         window.titlebarSeparatorStyle = .line
         window.minSize = NSSize(width: 760, height: 650)
         window.isReleasedWhenClosed = false
@@ -257,8 +266,8 @@ enum GlintBrand {
 
 @MainActor final class AboutWindowController: NSWindowController {
     init(onVersionHistory: @escaping () -> Void) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "About GLINT"
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 440), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = "About Nuncid"
         window.isReleasedWhenClosed = false
         let hostingView = NSHostingView(rootView: AboutView(onVersionHistory: onVersionHistory))
         hostingView.sizingOptions = []
@@ -266,17 +275,27 @@ enum GlintBrand {
         window.center()
         super.init(window: window)
     }
+#if DEBUG
+    func captureProbe(to url: URL) {
+        guard let view = window?.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        guard let data = representation.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+#endif
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 @MainActor final class VersionHistoryWindowController: NSWindowController {
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "GLINT Version History"
+        window.title = "Nuncid Version History"
         window.titlebarSeparatorStyle = .line
         window.minSize = NSSize(width: 720, height: 480)
         window.isReleasedWhenClosed = false
-        let view = VersionHistoryView(currentVersion: GlintBrand.version)
+        let view = VersionHistoryView(currentVersion: NuncidBrand.version)
 #if DEBUG
         let rootView = CommandLine.arguments.contains("--version-history-dark-probe")
             ? AnyView(view.preferredColorScheme(.dark))
@@ -337,17 +356,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--overlay-probe") || CommandLine.arguments.contains("--overlay-stress-probe") {
             let overlay = OverlayController(allowsCapture: true)
             let stress = CommandLine.arguments.contains("--overlay-stress-probe")
-            let lines: [GlintLine] = stress ? [
-                GlintLine(key: "GLINT-24", state: "in-progress", title: "Make detailed ticket cards adapt precisely to long real-world titles without hiding the alternatives users expect to reach with the mouse wheel", source: "ppm", metadata: "ticket · high priority · release 0.3", detail: "This deliberately long detail is representative of a real tracker response. It verifies that an Extra Large, Detailed card measures every visible line before choosing its panel height, keeps the alternative rail reachable, and leaves the pinned navigation footer flush with the bottom edge instead of clipping content or creating a large empty void."),
-                GlintLine(key: "GLINT-23", state: "open", title: "Preserve wheel navigation", source: "ppm"),
-                GlintLine(key: "#184", state: "review", title: "Keep GitHub pull requests visible", source: "gh"),
-                GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
-                GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
-                GlintLine(key: "GLINT-19", state: "open", title: "Show scan feedback", source: "ppm")
+            let lines: [TicketLine] = stress ? [
+                TicketLine(key: "NUNCID-29", state: "in-progress", title: "Deliver a migration-safe product rename without losing settings, permissions, or historical references", source: "ppm", metadata: "ticket · high priority · release 0.4", detail: "Nuncid replaces Glint as the product name while keeping the established bundle identity, local preferences, Screen Recording authorization, and every historical GLINT-* reference intact through explicit redirects and aliases."),
+                TicketLine(key: "NUNCID-28", state: "done", title: "Add a positive human-language version history", source: "ppm"),
+                TicketLine(key: "#184", state: "review", title: "Keep GitHub pull requests visible", source: "gh"),
+                TicketLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
+                TicketLine(key: "NUNCID-27", state: "done", title: "Replace repeating activation with clear shortcut modes", source: "ppm"),
+                TicketLine(key: "NUNCID-19", state: "done", title: "Show anchored scan feedback", source: "ppm")
             ] : [
-                GlintLine(key: "GLINT-12", state: "in-progress", title: "Add configurable global inspect and pin commands", source: "ppm", metadata: "ticket · high priority", detail: "Record any safe system-wide shortcut and open the ticket navigator immediately, without requiring an accessibility permission."),
-                GlintLine(key: "GLINT-13", state: "new", title: "Build the docked wheel-driven pinned navigator", source: "ppm", metadata: "ticket · high priority", detail: "A secondary result becomes a full card when selected."),
-                GlintLine(key: "GLINT-14", state: "new", title: "Add focused ticket entry and fuzzy project switching", source: "ppm", metadata: "ticket · high priority", detail: "Type a number or a forgiving project abbreviation while the card has focus.")
+                TicketLine(key: "NUNCID-29", state: "in-progress", title: "Deliver the Nuncid rename", source: "ppm", metadata: "ticket · high priority", detail: "The new name ships without losing established state or historical references."),
+                TicketLine(key: "NUNCID-28", state: "done", title: "Explain every release in positive human language", source: "ppm", metadata: "ticket · medium priority", detail: "Version History leads with what each improvement gives the user."),
+                TicketLine(key: "NUNCID-27", state: "done", title: "Make activation effortless", source: "ppm", metadata: "ticket · high priority", detail: "Choose Off, Toggle Hover, or Press to Scan.")
             ]
             overlay.show(lines, near: NSEvent.mouseLocation, shortcutLabel: "⌥⇧Space")
             overlay.pin(shortcutLabel: "⌥⇧Space")
@@ -396,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let recognized = ScanFeedbackController(allowsCapture: true)
         let recognizedPrimary = ScanFeedbackAnchor(
-            literal: "GLINT-19",
+            literal: "NUNCID-29",
             bounds: CGRect(x: frame.midX - 94, y: centerY - 10, width: 94, height: 22)
         )
         let recognizedAlternate = ScanFeedbackAnchor(
@@ -410,7 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let resolved = ScanFeedbackController(allowsCapture: true)
         resolved.showDebugResolved(anchor: ScanFeedbackAnchor(
-            literal: "GLINT-19",
+            literal: "NUNCID-29",
             bounds: CGRect(x: frame.maxX - frame.width / 6 - 42, y: centerY - 10, width: 84, height: 22)
         ))
         probeScanFeedback = [invoked, recognized, resolved]
@@ -425,9 +444,9 @@ private struct ScanFeedbackProbeBackdrop: View {
             HStack(spacing: 0) {
                 phase("1", "INVOKED", "Immediate acknowledgement", ticket: "PAI-843")
                 Divider().padding(.vertical, 22)
-                phase("2", "RECOGNIZED", "Candidate anchors", ticket: "GLINT-19     #184")
+                phase("2", "RECOGNIZED", "Candidate anchors", ticket: "NUNCID-29     #184")
                 Divider().padding(.vertical, 22)
-                phase("3", "RESOLVED", "Confirmed ticket", ticket: "GLINT-19")
+                phase("3", "RESOLVED", "Confirmed ticket", ticket: "NUNCID-29")
             }
             Text("DEBUG VISUAL PROBE · release scan feedback remains capture-excluded")
                 .font(.caption2.monospaced().weight(.medium))
@@ -601,12 +620,12 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                Image(nsImage: GlintBrand.appIcon)
+                Image(nsImage: NuncidBrand.appIcon)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("GLINT").font(.headline.weight(.bold))
+                    Text("Nuncid").font(.headline.weight(.bold))
                     Text("Settings").font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -635,7 +654,7 @@ struct SettingsView: View {
 
             Spacer()
             Button { state.openVersionHistory() } label: {
-                Label("Version \(GlintBrand.version)", systemImage: "clock.arrow.circlepath")
+                Label("Version \(NuncidBrand.version)", systemImage: "clock.arrow.circlepath")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -657,7 +676,7 @@ struct SettingsView: View {
     }
 
     private var scanningPage: some View {
-        SettingsPage(title: "How GLINT Activates", subtitle: "Choose what the activation shortcut does.") {
+        SettingsPage(title: "How Nuncid Activates", subtitle: "Choose what the activation shortcut does.") {
             SettingsCard(padding: 0) {
                 shortcutRow(icon: "cursorarrow.rays", title: "Activation shortcut", subtitle: "Controls the selected behavior below.", hotKey: $state.inspectHotKey, forbidden: state.pinHotKey)
             }
@@ -689,7 +708,7 @@ struct SettingsView: View {
                 Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Show scan feedback").fontWeight(.medium)
-                        Text("Briefly marks where GLINT is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
+                        Text("Briefly marks where Nuncid is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .toggleStyle(.switch)
@@ -747,7 +766,7 @@ struct SettingsView: View {
     }
 
     private var appearancePage: some View {
-        SettingsPage(title: "Card Appearance", subtitle: "Tune the ticket card without changing what GLINT finds.") {
+        SettingsPage(title: "Card Appearance", subtitle: "Tune the ticket card without changing what Nuncid finds.") {
             AppearanceCardPreview(preferences: state.presentationPreferences)
                 .frame(maxWidth: .infinity)
 
@@ -800,7 +819,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(state.screenRecordingGranted ? "Screen Recording is allowed" : "Screen Recording permission is required")
                             .font(.headline)
-                        Text(state.screenRecordingGranted ? "GLINT is ready to inspect the small region beneath your pointer." : "Allow access so GLINT can read ticket identifiers from the screen.")
+                        Text(state.screenRecordingGranted ? "Nuncid is ready to inspect the small region beneath your pointer." : "Allow access so Nuncid can read ticket identifiers from the screen.")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         if !state.screenRecordingGranted {
                             Button("Open Privacy Settings…") { state.requestScreenRecording() }.padding(.top, 6)
@@ -810,7 +829,7 @@ struct SettingsView: View {
             }
 
             SettingsCard {
-                SettingsCardHeader(icon: "lock.laptopcomputer", title: "On-device by design", subtitle: "GLINT uses Apple Vision locally. Screen pixels never leave your Mac.")
+                SettingsCardHeader(icon: "lock.laptopcomputer", title: "On-device by design", subtitle: "Nuncid uses Apple Vision locally. Screen pixels never leave your Mac.")
                 VStack(spacing: 10) {
                     privacyRow("viewfinder", "Small crop only", "Captures only the area needed to find a ticket ID.")
                     privacyRow("text.viewfinder", "Local OCR", "Recognition runs entirely through Apple Vision.")
@@ -824,7 +843,7 @@ struct SettingsView: View {
                     Image(systemName: "clock.arrow.circlepath").font(.title3).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Resolved titles & learned context").fontWeight(.medium)
-                        Text("GLINT caches ticket titles and remembers confirmed project or repository choices by the foreground app’s bundle identifier.").font(.caption).foregroundStyle(.secondary)
+                        Text("Nuncid caches ticket titles and remembers confirmed project or repository choices by the foreground app’s bundle identifier.").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button(cacheCleared ? "Forgotten" : "Forget Titles & Context") {
@@ -1014,25 +1033,29 @@ private struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(nsImage: GlintBrand.appIcon).resizable().interpolation(.high).frame(width: 112, height: 112)
-            Text("GLINT").font(.largeTitle.weight(.bold))
+            Image(nsImage: NuncidBrand.appIcon).resizable().interpolation(.high).frame(width: 112, height: 112)
+            Text("Nuncid").font(.largeTitle.weight(.bold))
+            Text("Pronounced NUN-sid").font(.caption.weight(.medium)).foregroundStyle(Color.accentColor)
             Text("Ticket context, right where you point.").font(.headline).foregroundStyle(.secondary)
-            Text("Version \(GlintBrand.version)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            Text("Version \(NuncidBrand.version)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Button("Version History…", action: onVersionHistory)
             Text("Reads a tiny on-screen region locally and resolves real PPM, PMA, and GitHub records—never invented placeholders.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 330)
             Divider().frame(width: 250)
             HStack(spacing: 4) {
                 Text("Open source under")
-                Link("GNU AGPL v3.0", destination: URL(string: "https://github.com/markus-barta/glint/blob/main/LICENSE")!)
+                Link("GNU AGPL v3.0", destination: URL(string: "https://github.com/markus-barta/nuncid/blob/main/LICENSE")!)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-        }.padding(28).frame(width: 420, height: 420)
+        }
+        .padding(28)
+        .frame(width: 420, height: 440)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
-@main struct GlintApp: App {
+@main struct NuncidApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var state = AppState()
     var body: some Scene {
@@ -1061,10 +1084,10 @@ private struct AboutView: View {
             if !state.screenRecordingGranted { Button("Grant Screen Recording…") { state.requestScreenRecording() } }
             Button("Settings…") { state.openSettings() }.keyboardShortcut(",")
             Button("Version History…") { state.openVersionHistory() }
-            Button("About GLINT") { state.openAbout() }
-            Button("Quit GLINT") { NSApp.terminate(nil) }.keyboardShortcut("q")
+            Button("About Nuncid") { state.openAbout() }
+            Button("Quit Nuncid") { NSApp.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            GlintMenuBarIcon(
+            NuncidMenuBarIcon(
                 mode: state.activationPreferences.mode,
                 hoverEnabled: state.hoverScanningEnabled,
                 matchFound: state.hoverMatchFound
@@ -1073,7 +1096,7 @@ private struct AboutView: View {
     }
 }
 
-private struct GlintMenuBarIcon: View {
+private struct NuncidMenuBarIcon: View {
     let mode: HoverActivationMode
     let hoverEnabled: Bool
     let matchFound: Bool
@@ -1092,7 +1115,7 @@ private struct GlintMenuBarIcon: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
             } else {
-                Image(nsImage: GlintBrand.menuBarIcon)
+                Image(nsImage: NuncidBrand.menuBarIcon)
                     .renderingMode(.template)
                     .opacity(mode == .pressToScan ? 1 : 0.55)
             }
@@ -1102,11 +1125,11 @@ private struct GlintMenuBarIcon: View {
 
     private var accessibilityLabel: String {
         switch state {
-        case .active: return "GLINT, hover on"
-        case .matchFound: return "GLINT, hover on, ticket found"
+        case .active: return "Nuncid, hover on"
+        case .matchFound: return "Nuncid, hover on, ticket found"
         case .inactive:
-            if mode == .off { return "GLINT, scanning off" }
-            return mode == .pressToScan ? "GLINT, press to scan" : "GLINT, hover off"
+            if mode == .off { return "Nuncid, scanning off" }
+            return mode == .pressToScan ? "Nuncid, press to scan" : "Nuncid, hover off"
         }
     }
 }

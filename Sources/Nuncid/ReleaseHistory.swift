@@ -21,6 +21,20 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.4.0",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "Meet Nuncid",
+            headline: "A clearer name for context, identified now.",
+            intro: "GLINT is now Nuncid (NUN-sid)—the same private ticket companion, with one distinct identity across the app, project, and repository.",
+            items: [
+                ReleaseNoteItem(label: "Same trusted app", detail: "Your shortcuts, activation and card preferences, learned context, and Screen Recording access carry forward."),
+                ReleaseNoteItem(label: "One clear identity", detail: "The app, package, repository, and active Paimos project now share the Nuncid name."),
+                ReleaseNoteItem(label: "History stays true", detail: "Earlier GLINT releases and GLINT-* ticket references remain intact and continue to resolve."),
+                ReleaseNoteItem(label: "Private by design", detail: "Nuncid keeps scanning local to your Mac and performs read-only ticket lookups, so your workflow stays private and focused.")
+            ]
+        ),
+        ReleaseNote(
             version: "0.3.3",
             isoDate: "2026-08-30",
             date: "30 August 2026",
@@ -161,7 +175,7 @@ struct VersionHistoryView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Label("Version History", systemImage: "clock.arrow.circlepath")
                     .font(.title2.weight(.bold))
-                Text("What’s new in GLINT")
+                Text("What’s new in Nuncid")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

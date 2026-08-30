@@ -11,7 +11,7 @@ enum OverlayMetrics {
     }
 
     static func preferredHeight(
-        lines: [GlintLine],
+        lines: [TicketLine],
         sticky: Bool,
         preferences: PresentationPreferences,
         selectedIndex: Int = 0,
@@ -27,14 +27,14 @@ enum OverlayMetrics {
         return ceil(body + (sticky ? pinnedReservedChromeHeight : outerPadding * 2))
     }
 
-    static func size(lines: [GlintLine], sticky: Bool, preferences: PresentationPreferences, selectedIndex: Int = 0, visibleFrame: CGRect) -> CGSize {
+    static func size(lines: [TicketLine], sticky: Bool, preferences: PresentationPreferences, selectedIndex: Int = 0, visibleFrame: CGRect) -> CGSize {
         let width = min(preferences.width.points, max(360, visibleFrame.width - 24))
         let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences, selectedIndex: selectedIndex, width: width)
         return CGSize(width: width, height: min(preferred, max(190, visibleFrame.height - 24)))
     }
 
     static func visibleAlternativeCount(
-        lines: [GlintLine],
+        lines: [TicketLine],
         selectedIndex: Int,
         preferences: PresentationPreferences,
         width: CGFloat,
@@ -55,7 +55,7 @@ enum OverlayMetrics {
         } ?? 0
     }
 
-    static func primaryHeight(line: GlintLine, preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
+    static func primaryHeight(line: TicketLine, preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
         let cardPadding = preferences.density.verticalPadding
         let textWidth = max(160, width - outerPadding * 2 - cardPadding * 2)
         let scale = preferences.textSize.scale
@@ -134,7 +134,7 @@ struct StatusPill: View {
 }
 
 struct PrimaryResultCard: View {
-    let line: GlintLine
+    let line: TicketLine
     let preferences: PresentationPreferences
     var body: some View {
         VStack(alignment: .leading, spacing: preferences.density == .compact ? 6 : 10) {
@@ -160,7 +160,7 @@ struct PrimaryResultCard: View {
 
 struct AlternativeResultRow: View {
     let position: Int
-    let line: GlintLine
+    let line: TicketLine
     let preferences: PresentationPreferences
     var body: some View {
         HStack(spacing: 8) {
@@ -177,7 +177,7 @@ struct AlternativeResultRow: View {
 }
 
 struct OverlayContent: View {
-    let lines: [GlintLine]
+    let lines: [TicketLine]
     let selectedIndex: Int
     let sticky: Bool
     let shortcutLabel: String
@@ -209,7 +209,7 @@ struct OverlayContent: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.18)))
     }
 
-    private var selectedLine: GlintLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
+    private var selectedLine: TicketLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
     private var alternativeIndices: [Int] {
         let indices = preferences.circularAlternativeIndices(count: lines.count, selectedIndex: selectedIndex)
         guard sticky else { return indices }
@@ -300,12 +300,12 @@ struct OverlayContent: View {
 struct AppearanceCardPreview: View {
     let preferences: PresentationPreferences
     private let sampleLines = [
-        GlintLine(key: "GLINT-22", state: "in-progress", title: "A card that feels unmistakably yours", source: "ppm", metadata: "ticket · high priority", detail: "See the right amount of context, then scroll through alternatives with confidence."),
-        GlintLine(key: "GLINT-21", state: "open", title: "Make activation effortless", source: "ppm"),
-        GlintLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "gh"),
-        GlintLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
-        GlintLine(key: "GLINT-19", state: "open", title: "Add scan feedback", source: "ppm"),
-        GlintLine(key: "GLINT-18", state: "open", title: "Polish privacy controls", source: "ppm")
+        TicketLine(key: "NUNCID-29", state: "in-progress", title: "A new name, with everything you trust preserved", source: "ppm", metadata: "ticket · high priority", detail: "Nuncid carries your settings, permission, history, and familiar workflow into one clear new identity."),
+        TicketLine(key: "NUNCID-28", state: "done", title: "Explain every release in positive human language", source: "ppm"),
+        TicketLine(key: "#184", state: "review", title: "Refine source-aware matching", source: "gh"),
+        TicketLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
+        TicketLine(key: "NUNCID-27", state: "done", title: "Make activation effortless", source: "ppm"),
+        TicketLine(key: "NUNCID-19", state: "done", title: "Add scan feedback", source: "ppm")
     ]
 
     var body: some View {
@@ -331,10 +331,10 @@ struct AppearanceCardPreview: View {
 @MainActor final class OverlayController: NSObject, NSWindowDelegate {
     var onCycleProject: ((Int) -> Void)?
     var onInput: ((PinnedInputEvent) -> Void)?
-    var onSelectionChange: ((GlintLine) -> Void)?
+    var onSelectionChange: ((TicketLine) -> Void)?
 
     private let panel: FocusablePanel
-    private var displayedLines: [GlintLine] = []
+    private var displayedLines: [TicketLine] = []
     private var selectedIndex = 0
     private var anchorMouse = CGPoint.zero
     private var shortcutLabel = "⌥⇧Space"
@@ -350,7 +350,7 @@ struct AppearanceCardPreview: View {
 
     var isVisible: Bool { panel.isVisible }
     var isActive: Bool { panel.isKeyWindow }
-    var selectedLine: GlintLine? { displayedLines.indices.contains(selectedIndex) ? displayedLines[selectedIndex] : displayedLines.first }
+    var selectedLine: TicketLine? { displayedLines.indices.contains(selectedIndex) ? displayedLines[selectedIndex] : displayedLines.first }
 
 #if DEBUG
     func captureProbe(to url: URL) {
@@ -376,7 +376,7 @@ struct AppearanceCardPreview: View {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
-        preferenceObserver = NotificationCenter.default.addObserver(forName: .glintPresentationPreferencesDidChange, object: nil, queue: .main) { [weak self] _ in
+        preferenceObserver = NotificationCenter.default.addObserver(forName: .nuncidPresentationPreferencesDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.presentationPreferences = PresentationPreferences.load()
@@ -391,7 +391,7 @@ struct AppearanceCardPreview: View {
         if let preferenceObserver { NotificationCenter.default.removeObserver(preferenceObserver) }
     }
 
-    func show(_ lines: [GlintLine], near mouse: CGPoint, shortcutLabel: String = "⌥⇧Space") {
+    func show(_ lines: [TicketLine], near mouse: CGPoint, shortcutLabel: String = "⌥⇧Space") {
         guard !lines.isEmpty else { hide(); return }
         if isSticky { replacePinnedResults(lines); return }
         displayedLines = Array(lines.prefix(HoverResultPolicy.maximumResults)); selectedIndex = 0
@@ -420,7 +420,7 @@ struct AppearanceCardPreview: View {
 
     func focusPinned() { guard isSticky else { return }; panel.makeKeyAndOrderFront(nil) }
 
-    func replacePinnedResults(_ lines: [GlintLine], selecting key: String? = nil, status: String? = nil) {
+    func replacePinnedResults(_ lines: [TicketLine], selecting key: String? = nil, status: String? = nil) {
         guard isSticky else { return }
         displayedLines = Array(lines.prefix(HoverResultPolicy.maximumResults))
         if let key, let index = displayedLines.firstIndex(where: { $0.key == key }) { selectedIndex = index }

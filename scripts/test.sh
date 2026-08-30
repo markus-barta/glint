@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir=${0:A:h:h}
 cd "$repo_dir"
 swift build
-"$repo_dir/.build/debug/Glint" --self-test
+"$repo_dir/.build/debug/Nuncid" --self-test
 
 task_tmp_dir=$(mktemp -d)
 trap 'rm -rf "$task_tmp_dir"' EXIT
@@ -26,4 +26,4 @@ next=$("$task_tmp_dir/scripts/bump-version.sh" minor 'Better hover cards.')
 grep -q '^## \[1.3.0\]' "$task_tmp_dir/CHANGELOG.md"
 grep -q '^- Better hover cards\.$' "$task_tmp_dir/CHANGELOG.md"
 grep -q '^## \[1.2.3\]' "$task_tmp_dir/CHANGELOG.md"
-print 'GLINT versioning tests passed'
+print 'Nuncid versioning tests passed'

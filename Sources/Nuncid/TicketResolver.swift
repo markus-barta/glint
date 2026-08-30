@@ -20,7 +20,7 @@ private struct PullRequest: Decodable {
     let reviewDecision: String?
     let author: Author?
 }
-private struct CacheEntry: Codable { let line: GlintLine?; let savedAt: Date }
+private struct CacheEntry: Codable { let line: TicketLine?; let savedAt: Date }
 
 private final class ProcessCancellationHandle: @unchecked Sendable {
     private let lock = NSLock()
@@ -56,7 +56,7 @@ private final class ProcessOutputBuffer: @unchecked Sendable {
 
 struct ResolvedCandidate: Hashable, Sendable {
     let proposal: CandidateProposal
-    let line: GlintLine
+    let line: TicketLine
 }
 
 actor TicketResolver {
@@ -68,13 +68,13 @@ actor TicketResolver {
            let decoded = try? JSONDecoder().decode([String: CacheEntry].self, from: data) { cache = decoded }
     }
 
-    func resolve(_ spec: CandidateSpec) async -> GlintLine? {
+    func resolve(_ spec: CandidateSpec) async -> TicketLine? {
         guard !Task.isCancelled else { return nil }
         if let entry = cache[spec.cacheKey] {
             let ttl: TimeInterval = entry.line == nil ? 60 : 15 * 60
             if Date().timeIntervalSince(entry.savedAt) < ttl { return Task.isCancelled ? nil : entry.line }
         }
-        let line: GlintLine?
+        let line: TicketLine?
         switch spec {
         case let .issue(tracker, key): line = await resolveIssue(tracker: tracker, key: key)
         case let .pullRequest(number, repo): line = await resolvePullRequest(number: number, repo: repo)
@@ -104,7 +104,7 @@ actor TicketResolver {
     ) async -> [ResolvedCandidate] {
         let bounded = Array(proposals.prefix(ResolutionPlan.maximumCandidates))
         guard !bounded.isEmpty, !Task.isCancelled else { return [] }
-        let resolved = await withTaskGroup(of: (Int, GlintLine?).self, returning: [(Int, GlintLine?)].self) { group in
+        let resolved = await withTaskGroup(of: (Int, TicketLine?).self, returning: [(Int, TicketLine?)].self) { group in
             var launched = ResolutionLookupPolicy.initialCount(total: bounded.count)
             for index in 0..<launched {
                 let proposal = bounded[index]
@@ -113,7 +113,7 @@ actor TicketResolver {
                     return (index, await self.resolve(proposal.spec))
                 }
             }
-            var values: [(Int, GlintLine?)] = []
+            var values: [(Int, TicketLine?)] = []
             var realIDs = Set<String>()
             while let value = await group.next() {
                 guard !Task.isCancelled else {
@@ -153,7 +153,7 @@ actor TicketResolver {
 
     func clearCache() { cache.removeAll(); UserDefaults.standard.removeObject(forKey: defaultsKey) }
 
-    private func resolveIssue(tracker: Tracker, key: String) async -> GlintLine? {
+    private func resolveIssue(tracker: Tracker, key: String) async -> TicketLine? {
         guard let executable = Self.findExecutable(named: "paimos"),
               let data = await Self.run(executable, ["--instance", tracker.rawValue, "--json", "issue", "get", key]),
               let issue = try? JSONDecoder().decode(PaimosIssue.self, from: data) else { return nil }
@@ -161,7 +161,7 @@ actor TicketResolver {
             issue.type?.replacingOccurrences(of: "_", with: " "),
             issue.priority.map { "\($0) priority" },
         ].compactMap { $0 }.joined(separator: " · ")
-        return GlintLine(
+        return TicketLine(
             key: issue.issueKey,
             state: issue.status,
             title: issue.title,
@@ -171,7 +171,7 @@ actor TicketResolver {
         )
     }
 
-    private func resolvePullRequest(number: Int, repo: String) async -> GlintLine? {
+    private func resolvePullRequest(number: Int, repo: String) async -> TicketLine? {
         guard let executable = Self.findExecutable(named: "gh"),
               let data = await Self.run(executable, ["pr", "view", "\(number)", "--repo", repo, "--json", "author,body,isDraft,number,reviewDecision,state,title"]),
               let pr = try? JSONDecoder().decode(PullRequest.self, from: data) else { return nil }
@@ -180,7 +180,7 @@ actor TicketResolver {
             pr.author.map { "@\($0.login)" },
             pr.reviewDecision?.lowercased().replacingOccurrences(of: "_", with: " "),
         ].compactMap { $0 }.joined(separator: " · ")
-        return GlintLine(
+        return TicketLine(
             key: "#\(pr.number)",
             state: pr.isDraft ? "draft" : pr.state.lowercased(),
             title: pr.title,

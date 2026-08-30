@@ -705,8 +705,8 @@ enum ResolverDeterministicChecks {
         if explicit.proposals.first?.spec != .issue(tracker: .ppm, key: "GLINT-20") ||
             explicit.proposals.first?.learningEligibility != .explicit { failures.append("explicit key") }
 
-        let pr = EvidenceCandidatePlanner.plan(input: .init(lines: ["markus-barta/glint PR #20"]), context: context)
-        if pr.proposals.first?.spec != .pullRequest(number: 20, repo: "markus-barta/glint") { failures.append("#PR syntax") }
+        let pr = EvidenceCandidatePlanner.plan(input: .init(lines: ["markus-barta/nuncid PR #20"]), context: context)
+        if pr.proposals.first?.spec != .pullRequest(number: 20, repo: "markus-barta/nuncid") { failures.append("#PR syntax") }
 
         let customURL = EvidenceCandidatePlanner.plan(
             input: .init(lines: ["https://github.com/example/custom/pull/42"]),
@@ -719,7 +719,7 @@ enum ResolverDeterministicChecks {
         let canonicalRepos = Set(ProjectDescriptor.known.compactMap {
             CandidatePlanner.repo(for: $0.key)?.lowercased()
         })
-        for unsafeText in ["Sources/Glint #42", "2026/08/29 #42", "and/or #42"] {
+        for unsafeText in ["Sources/Nuncid #42", "2026/08/29 #42", "and/or #42"] {
             let unsafePlan = EvidenceCandidatePlanner.plan(input: .init(lines: [unsafeText]), context: context)
             let untrustedRepo = unsafePlan.proposals.contains { proposal in
                 guard case let .pullRequest(_, repo) = proposal.spec else { return false }
@@ -729,7 +729,7 @@ enum ResolverDeterministicChecks {
         }
         var legacyHistory = ApplicationResolutionHistory()
         let legacyCustomRepo = CandidateProposal(
-            spec: .pullRequest(number: 7, repo: "sources/glint"),
+            spec: .pullRequest(number: 7, repo: "sources/nuncid"),
             score: 10_000,
             reasons: [],
             sourceOrder: 0,
@@ -748,7 +748,7 @@ enum ResolverDeterministicChecks {
             history: legacyHistory,
             now: Date(timeIntervalSince1970: 1_000_001)
         )
-        if legacyPlan.proposals.contains(where: { $0.spec == .pullRequest(number: 42, repo: "sources/glint") }) {
+        if legacyPlan.proposals.contains(where: { $0.spec == .pullRequest(number: 42, repo: "sources/nuncid") }) {
             failures.append("legacy untrusted repo history")
         }
 
@@ -797,9 +797,9 @@ enum ResolverDeterministicChecks {
             )
         }
         let highestScore = orderingFixture(spec: .issue(tracker: .ppm, key: "PAI-9"), score: 200, sourceOrder: 50)
-        let earlierSource = orderingFixture(spec: .pullRequest(number: 9, repo: "markus-barta/glint"), score: 100, sourceOrder: 2)
+        let earlierSource = orderingFixture(spec: .pullRequest(number: 9, repo: "markus-barta/nuncid"), score: 100, sourceOrder: 2)
         let lexicalFirst = orderingFixture(spec: .issue(tracker: .ppm, key: "GLINT-9"), score: 100, sourceOrder: 7)
-        let lexicalSecond = orderingFixture(spec: .pullRequest(number: 8, repo: "markus-barta/glint"), score: 100, sourceOrder: 7)
+        let lexicalSecond = orderingFixture(spec: .pullRequest(number: 8, repo: "markus-barta/nuncid"), score: 100, sourceOrder: 7)
         let orderedFixtures = [lexicalSecond, earlierSource, highestScore, lexicalFirst]
             .sorted(by: CandidateProposalStableOrdering.precedes)
         if orderedFixtures.map(\.spec) != [highestScore.spec, earlierSource.spec, lexicalFirst.spec, lexicalSecond.spec] ||
@@ -880,9 +880,9 @@ enum ResolverDeterministicChecks {
         let tie = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context)
         if tie.learningDecision(for: tie.proposals[0]) != nil { failures.append("ambiguous tie") }
 
-        let glintWindow = ForegroundApplicationContext(bundleIdentifier: "com.apple.Safari", applicationName: "Safari", windowTitle: "GLINT Settings")
-        let falseContext = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context, foreground: glintWindow)
-        if falseContext.proposals.first?.inferredProject != "GLINT" ||
+        let nuncidWindow = ForegroundApplicationContext(bundleIdentifier: "com.apple.Safari", applicationName: "Safari", windowTitle: "Nuncid Settings")
+        let falseContext = EvidenceCandidatePlanner.plan(input: .init(lines: ["300"]), context: context, foreground: nuncidWindow)
+        if falseContext.proposals.first?.inferredProject != "NUNCID" ||
             falseContext.proposals.first?.learningEligibility != .userConfirmation ||
             falseContext.proposals.first.flatMap({ falseContext.learningDecision(for: $0) }) != nil {
             failures.append("weak foreground context must require confirmation")

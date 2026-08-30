@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Glint",
+    name: "Nuncid",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "Glint", targets: ["Glint"])],
+    products: [.executable(name: "Nuncid", targets: ["Nuncid"])],
     targets: [
         .executableTarget(
-            name: "Glint",
+            name: "Nuncid",
             resources: [.process("Resources")]
         )
     ],

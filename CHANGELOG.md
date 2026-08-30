@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-30
+
+- Meet Nuncid, the new migration-safe name for the same private macOS ticket-context companion.
+
 ## [0.3.3] - 2026-08-30
 
 - Add a polished in-app Version History that explains each release in positive, human language.
