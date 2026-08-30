@@ -6,21 +6,6 @@ enum Tracker: String, Codable, CaseIterable, Sendable {
     var other: Tracker { self == .ppm ? .pma : .ppm }
 }
 
-enum TriggerMode: String, CaseIterable, Identifiable {
-    case off, dwell, option, always
-    /// Retained for legacy UI/tests; Off is represented explicitly but was never a legacy picker option.
-    static let allCases: [TriggerMode] = [.dwell, .option, .always]
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .off: return "Off"
-        case .dwell: return "Dwell (300 ms)"
-        case .option: return "Hold Option"
-        case .always: return "Always follow"
-        }
-    }
-}
-
 struct HotKeyModifiers: OptionSet, Codable, Hashable {
     let rawValue: UInt32
 
@@ -56,13 +41,11 @@ struct HotKey: Codable, Hashable {
 }
 
 struct GlintPreferences: Equatable {
-    var triggerMode: TriggerMode
     var inspectHotKey: HotKey?
     var pinHotKey: HotKey?
 
     static func load(defaults: UserDefaults = .standard) -> GlintPreferences {
         return GlintPreferences(
-            triggerMode: TriggerMode(rawValue: defaults.string(forKey: "triggerMode") ?? "dwell") ?? .dwell,
             inspectHotKey: decodeHotKey(key: "inspectHotKey", fallback: .inspect, defaults: defaults),
             pinHotKey: decodeHotKey(key: "pinHotKey", fallback: .pin, defaults: defaults)
         )

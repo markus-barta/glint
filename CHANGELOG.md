@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-30
+
+- Replace repeating activation with Off, Toggle Hover, and Press to Scan, plus clear menu bar hover state.
+
 ## [0.3.1] - 2026-08-29
 
 - Publish GLINT under GNU AGPL v3.0 and refresh its public GitHub presentation.

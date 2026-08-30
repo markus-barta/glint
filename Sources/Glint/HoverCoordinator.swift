@@ -87,8 +87,7 @@ enum PinnedScanOwnershipPolicy {
     private var timer: Timer?
     private var lastPosition = NSEvent.mouseLocation
     private var stableSince = Date()
-    private var lastScanAt = Date.distantPast
-    private var dwellScannedPosition: CGPoint?
+    private var hoverScannedPosition: CGPoint?
     private var isScanning = false
     private var activeScanTask: Task<Void, Never>?
     private var lastPermissionPollAt = Date.distantPast
@@ -133,6 +132,25 @@ enum PinnedScanOwnershipPolicy {
     }
 
     func clearCache() { Task { await resolver.clearCache() } }
+
+    func setHoverScanningEnabled(_ enabled: Bool) {
+        resetHoverActivation()
+        appState?.activity = enabled ? "Hover on" : "Hover off"
+    }
+
+    func resetHoverActivation() {
+        scanGeneration += 1
+        activeScanTask?.cancel()
+        pendingManualScan = nil
+        clearManualInspection()
+        hoverScannedPosition = nil
+        lastPosition = NSEvent.mouseLocation
+        stableSince = Date()
+        overlay.hide()
+        scanFeedback.cancel()
+        appState?.setHoverMatchFound(false)
+        appState?.activity = "Ready"
+    }
 
     func performInspectCommand() {
         guard appState?.screenRecordingGranted == true else {
@@ -267,7 +285,7 @@ enum PinnedScanOwnershipPolicy {
             scanGeneration += 1
             activeScanTask?.cancel()
             pendingManualScan = nil
-            dwellScannedPosition = nil
+            hoverScannedPosition = nil
             stableSince = now
             overlay.hide()
             scanFeedback.cancel()
@@ -276,24 +294,24 @@ enum PinnedScanOwnershipPolicy {
         if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
             invalidateForPointerMovement(at: position)
         }
+#if DEBUG
+        if CommandLine.arguments.contains("--menu-hover-active-probe") ||
+            CommandLine.arguments.contains("--menu-match-probe") { return }
+#endif
         guard appState?.screenRecordingGranted == true else { return }
-        let heldModifiers = Self.hotKeyModifiers(from: NSEvent.modifierFlags)
         guard HoverInvocationPolicy.shouldTrigger(
             preferences: preferences,
+            hoverEnabled: appState?.hoverScanningEnabled == true,
             stableDuration: now.timeIntervalSince(stableSince),
-            dwellAlreadyScanned: dwellScannedPosition != nil,
-            heldModifiers: heldModifiers,
-            elapsedSinceLastScan: now.timeIntervalSince(lastScanAt)
+            locationAlreadyScanned: hoverScannedPosition != nil
         ) else { return }
         switch preferences.mode {
-        case .off:
+        case .off, .pressToScan:
             return
-        case .dwell:
-            if trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true) { dwellScannedPosition = position }
-        case .hold:
-            _ = trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true)
-        case .continuous:
-            _ = trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true)
+        case .toggleHover:
+            if trigger(at: position, presentation: .temporary, source: .automaticHover, requiresStablePointer: true) {
+                hoverScannedPosition = position
+            }
         }
     }
 
@@ -318,7 +336,7 @@ enum PinnedScanOwnershipPolicy {
             manualInspection = ManualInspectionState(anchor: position, startedAt: Date())
             lastPosition = position
         }
-        isScanning = true; lastScanAt = Date(); appState?.activity = "Reading near cursor…"
+        isScanning = true; appState?.activity = "Reading near cursor…"
         if appState?.activationPreferences.scanFeedbackEnabled == true,
            showInvokedCue,
            ScanCuePolicy.showsInvoked(for: source) {
@@ -412,8 +430,10 @@ enum PinnedScanOwnershipPolicy {
             guard !overlay.isSticky,
                   (!requiresStablePointer || hypot(NSEvent.mouseLocation.x - position.x, NSEvent.mouseLocation.y - position.y) <= 4) else { return }
             if lines.isEmpty {
+                if source == .automaticHover { appState?.setHoverMatchFound(false) }
                 overlay.hide(); clearManualInspection(); appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
             } else {
+                if source == .automaticHover { appState?.setHoverMatchFound(true) }
                 overlay.show(lines, near: position, shortcutLabel: pinShortcutLabel)
                 appState?.activity = lines.first?.title ?? "Ready"
             }
@@ -646,7 +666,7 @@ enum PinnedScanOwnershipPolicy {
         clearManualInspection()
         pendingManualScan = nil
         scanGeneration += 1; activeScanTask?.cancel(); directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
-        lastPosition = NSEvent.mouseLocation; stableSince = Date(); dwellScannedPosition = nil; appState?.activity = "Ready"
+        lastPosition = NSEvent.mouseLocation; stableSince = Date(); hoverScannedPosition = nil; appState?.setHoverMatchFound(false); appState?.activity = "Ready"
     }
 
     private func clearManualInspection() {
@@ -663,7 +683,8 @@ enum PinnedScanOwnershipPolicy {
         appState?.activity = "Ready"
         lastPosition = NSEvent.mouseLocation
         stableSince = Date()
-        dwellScannedPosition = nil
+        hoverScannedPosition = nil
+        appState?.setHoverMatchFound(false)
     }
 
     private func invalidateForPointerMovement(at position: CGPoint) {
@@ -687,7 +708,8 @@ enum PinnedScanOwnershipPolicy {
         clearManualInspection()
         lastPosition = position
         stableSince = Date()
-        dwellScannedPosition = nil
+        hoverScannedPosition = nil
+        appState?.setHoverMatchFound(false)
         overlay.hide()
         appState?.activity = "Ready"
     }
@@ -733,13 +755,4 @@ enum PinnedScanOwnershipPolicy {
         })
     }
 
-    private static func hotKeyModifiers(from flags: NSEvent.ModifierFlags) -> HotKeyModifiers {
-        let flags = flags.intersection(.deviceIndependentFlagsMask)
-        var result: HotKeyModifiers = []
-        if flags.contains(.command) { result.insert(.command) }
-        if flags.contains(.option) { result.insert(.option) }
-        if flags.contains(.control) { result.insert(.control) }
-        if flags.contains(.shift) { result.insert(.shift) }
-        return result
-    }
 }

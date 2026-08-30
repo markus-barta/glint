@@ -151,8 +151,8 @@ private func chip(_ label: String, x: CGFloat, y: CGFloat) -> CGFloat {
 private let scanField = image("docs/screenshots/glint-scan-field.png")
 private let icon = image("Sources/Glint/Resources/Brand/glint-app-icon-1024.png")
 private let card = image("docs/screenshots/pinned-card-0.3.1.png")
-private let scanning = image("docs/screenshots/settings-scanning-0.3.1.png")
-private let appearance = image("docs/screenshots/settings-appearance-0.3.1.png")
+private let scanning = image("docs/screenshots/settings-scanning-0.3.2.png")
+private let appearance = image("docs/screenshots/settings-appearance-0.3.2.png")
 
 private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1600, height: 900))
@@ -236,7 +236,7 @@ private let settingsShot = withCanvas(size: NSSize(width: 1600, height: 1040)) {
     _ = chip("Any safe global shortcut", x: 102, y: 906)
     _ = chip("Live, local preview", x: 1316, y: 906)
 }
-save(settingsShot, name: "settings-showcase-0.3.1.png")
+save(settingsShot, name: "settings-showcase-0.3.2.png")
 
 private let social = withCanvas(size: NSSize(width: 1280, height: 640)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1280, height: 640))
