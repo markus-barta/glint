@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-private enum GlintBrand {
+enum GlintBrand {
     private static var resourceBundles: [Bundle] {
         var bundles = [Bundle.main]
         if let executable = Bundle.main.executableURL {
@@ -69,6 +69,7 @@ private enum GlintBrand {
     private var coordinator: HoverCoordinator!
     private var settingsWindowController: SettingsWindowController?
     private var aboutWindowController: AboutWindowController?
+    private var versionHistoryWindowController: VersionHistoryWindowController?
 
     init() {
         let preferences = GlintPreferences.load()
@@ -122,6 +123,10 @@ private enum GlintBrand {
         if CommandLine.arguments.contains("--about-probe") {
             DispatchQueue.main.async { [weak self] in self?.openAbout() }
         }
+        if CommandLine.arguments.contains("--version-history-probe") ||
+            CommandLine.arguments.contains("--version-history-capture-probe") {
+            DispatchQueue.main.async { [weak self] in self?.openVersionHistory() }
+        }
 #endif
     }
 
@@ -153,10 +158,27 @@ private enum GlintBrand {
 #endif
     }
     func openAbout() {
-        if aboutWindowController == nil { aboutWindowController = AboutWindowController() }
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController { [weak self] in self?.openVersionHistory() }
+        }
         aboutWindowController?.showWindow(nil)
         aboutWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    func openVersionHistory() {
+        if versionHistoryWindowController == nil { versionHistoryWindowController = VersionHistoryWindowController() }
+        versionHistoryWindowController?.showWindow(nil)
+        versionHistoryWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+#if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--version-history-capture-probe"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.versionHistoryWindowController?.captureProbe(to: url)
+            }
+        }
+#endif
     }
     func resetActivation() {
         inspectHotKey = .inspect
@@ -234,16 +256,50 @@ private enum GlintBrand {
 }
 
 @MainActor final class AboutWindowController: NSWindowController {
-    init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 390), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    init(onVersionHistory: @escaping () -> Void) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "About GLINT"
         window.isReleasedWhenClosed = false
-        let hostingView = NSHostingView(rootView: AboutView())
+        let hostingView = NSHostingView(rootView: AboutView(onVersionHistory: onVersionHistory))
         hostingView.sizingOptions = []
         window.contentView = hostingView
         window.center()
         super.init(window: window)
     }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+@MainActor final class VersionHistoryWindowController: NSWindowController {
+    init() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.title = "GLINT Version History"
+        window.titlebarSeparatorStyle = .line
+        window.minSize = NSSize(width: 720, height: 480)
+        window.isReleasedWhenClosed = false
+        let view = VersionHistoryView(currentVersion: GlintBrand.version)
+#if DEBUG
+        let rootView = CommandLine.arguments.contains("--version-history-dark-probe")
+            ? AnyView(view.preferredColorScheme(.dark))
+            : AnyView(view)
+#else
+        let rootView = AnyView(view)
+#endif
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
+        window.center()
+        super.init(window: window)
+    }
+#if DEBUG
+    func captureProbe(to url: URL) {
+        guard let view = window?.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: representation)
+        guard let data = representation.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+#endif
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
@@ -578,11 +634,14 @@ struct SettingsView: View {
             .padding(.horizontal, 10)
 
             Spacer()
-
-            Text("Version \(GlintBrand.version)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .padding(18)
+            Button { state.openVersionHistory() } label: {
+                Label("Version \(GlintBrand.version)", systemImage: "clock.arrow.circlepath")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open version history")
+            .padding(18)
         }
         .frame(width: 180)
         .background(SidebarMaterial())
@@ -951,12 +1010,15 @@ private struct SettingsCardHeader: View {
 }
 
 private struct AboutView: View {
+    let onVersionHistory: () -> Void
+
     var body: some View {
         VStack(spacing: 14) {
             Image(nsImage: GlintBrand.appIcon).resizable().interpolation(.high).frame(width: 112, height: 112)
             Text("GLINT").font(.largeTitle.weight(.bold))
             Text("Ticket context, right where you point.").font(.headline).foregroundStyle(.secondary)
             Text("Version \(GlintBrand.version)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            Button("Version History…", action: onVersionHistory)
             Text("Reads a tiny on-screen region locally and resolves real PPM, PMA, and GitHub records—never invented placeholders.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 330)
             Divider().frame(width: 250)
@@ -966,7 +1028,7 @@ private struct AboutView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-        }.padding(28).frame(width: 420, height: 390)
+        }.padding(28).frame(width: 420, height: 420)
     }
 }
 
@@ -998,6 +1060,7 @@ private struct AboutView: View {
             Divider()
             if !state.screenRecordingGranted { Button("Grant Screen Recording…") { state.requestScreenRecording() } }
             Button("Settings…") { state.openSettings() }.keyboardShortcut(",")
+            Button("Version History…") { state.openVersionHistory() }
             Button("About GLINT") { state.openAbout() }
             Button("Quit GLINT") { NSApp.terminate(nil) }.keyboardShortcut("q")
         } label: {

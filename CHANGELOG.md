@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-30
+
+- Add a polished in-app Version History that explains each release in positive, human language.
+
 ## [0.3.2] - 2026-08-30
 
 - Replace repeating activation with Off, Toggle Hover, and Press to Scan, plus clear menu bar hover state.
