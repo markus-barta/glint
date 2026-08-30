@@ -4,6 +4,8 @@ import AppKit
 
 private let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 private let screenshots = root.appendingPathComponent("docs/screenshots")
+private let releaseVersion = try! String(contentsOf: root.appendingPathComponent("VERSION"), encoding: .utf8)
+    .trimmingCharacters(in: .whitespacesAndNewlines)
 
 private enum Palette {
     static let blue = NSColor(calibratedRed: 0.04, green: 0.52, blue: 1.0, alpha: 1)
@@ -167,9 +169,9 @@ private func chip(_ label: String, x: CGFloat, y: CGFloat) -> CGFloat {
 
 private let scanField = image("docs/screenshots/glint-scan-field.png")
 private let icon = image("Sources/Nuncid/Resources/Brand/nuncid-app-icon-1024.png")
-private let card = image("docs/screenshots/pinned-card-0.5.0.png")
-private let scanning = image("docs/screenshots/settings-scanning-0.5.0.png")
-private let appearance = image("docs/screenshots/settings-appearance-0.5.0.png")
+private let card = image("docs/screenshots/pinned-card-\(releaseVersion).png")
+private let scanning = image("docs/screenshots/settings-scanning-\(releaseVersion).png")
+private let appearance = image("docs/screenshots/settings-appearance-\(releaseVersion).png")
 
 private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1600, height: 900))
@@ -192,7 +194,7 @@ private let hero = withCanvas(size: NSSize(width: 1600, height: 900)) {
     panel(outer, radius: 30)
     roundedContainedImage(card, in: outer.insetBy(dx: 11, dy: 11), radius: 21)
 }
-save(hero, name: "hero-0.5.0.png")
+save(hero, name: "hero-\(releaseVersion).png")
 
 private let workflow = withCanvas(size: NSSize(width: 1600, height: 920)) {
     NSGradient(colors: [NSColor(calibratedRed: 0.025, green: 0.045, blue: 0.08, alpha: 1), NSColor(calibratedRed: 0.055, green: 0.09, blue: 0.14, alpha: 1)])!.draw(in: NSRect(x: 0, y: 0, width: 1600, height: 920), angle: -25)
@@ -236,7 +238,7 @@ private let workflow = withCanvas(size: NSSize(width: 1600, height: 920)) {
     panel(result, radius: 24)
     roundedContainedImage(card, in: result.insetBy(dx: 9, dy: 9), radius: 16)
 }
-save(workflow, name: "workflow-0.5.0.png")
+save(workflow, name: "workflow-\(releaseVersion).png")
 
 private let settingsShot = withCanvas(size: NSSize(width: 1600, height: 1040)) {
     NSGradient(colors: [NSColor(calibratedRed: 0.02, green: 0.035, blue: 0.065, alpha: 1), NSColor(calibratedRed: 0.06, green: 0.09, blue: 0.14, alpha: 1)])!.draw(in: NSRect(x: 0, y: 0, width: 1600, height: 1040), angle: -35)
@@ -253,7 +255,7 @@ private let settingsShot = withCanvas(size: NSSize(width: 1600, height: 1040)) {
     _ = chip("F1–F20 welcome", x: 102, y: 906)
     _ = chip("Remembered Custom size", x: 1260, y: 906)
 }
-save(settingsShot, name: "settings-showcase-0.5.0.png")
+save(settingsShot, name: "settings-showcase-\(releaseVersion).png")
 
 private let social = withCanvas(size: NSSize(width: 1280, height: 640)) {
     cover(scanField, in: NSRect(x: 0, y: 0, width: 1280, height: 640))
@@ -269,4 +271,4 @@ private let social = withCanvas(size: NSSize(width: 1280, height: 640)) {
     panel(cardRect, radius: 24)
     roundedContainedImage(card, in: cardRect.insetBy(dx: 9, dy: 9), radius: 16)
 }
-save(social, name: "social-preview-0.5.0.png")
+save(social, name: "social-preview-\(releaseVersion).png")

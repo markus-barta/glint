@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-30
+
+- Route every new install through the current verified release and explain the real first-launch security path.
+- Make packaged smoke tests independent of the source checkout and separate release-file parity into a deterministic check.
+- Guard every pull request with macOS build, test, package, signature, and release-consistency checks.
+- Refresh the GitHub hero, workflow, Settings, Version History, and social preview from the released 1.0 interface.
+- Support credentialed Developer ID signing, notarization, and ticket stapling while keeping local ad-hoc builds explicit.
+
 ## [0.5.3] - 2026-08-30
 
 - Restore the saved pinned card after app startup settles, so Nuncid returns safely and reliably to your workspace.

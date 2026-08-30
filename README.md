@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/hero-0.5.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
+  <img src="docs/screenshots/hero-1.0.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.5.3-0A84FF?style=flat-square" alt="Latest release 0.5.3"></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-1.0.0-0A84FF?style=flat-square" alt="Latest release 1.0.0"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -29,7 +29,7 @@
 Nuncid watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
 
 <p align="center">
-  <img src="docs/screenshots/workflow-0.5.0.png" alt="Nuncid keeps the current ticket fixed between previous and next results" width="100%">
+  <img src="docs/screenshots/workflow-1.0.0.png" alt="Nuncid keeps the current ticket fixed between previous and next results" width="100%">
 </p>
 
 | Invoke anywhere | Keep context nearby | Navigate without friction |
@@ -51,7 +51,7 @@ Activation and presentation are independent on purpose. Record any safe global s
 | <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed Nuncid menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
 
 <p align="center">
-  <img src="docs/screenshots/settings-showcase-0.5.0.png" alt="Nuncid activation and spatial card appearance settings" width="100%">
+  <img src="docs/screenshots/settings-showcase-1.0.0.png" alt="Nuncid activation and spatial card appearance settings" width="100%">
 </p>
 
 Nuncid can show zero to six neighboring destinations and offers four text sizes, three presets plus a remembered Custom size, three content densities, and system or solid surfaces. Cards adapt their content to the available space instead of forcing every ticket into the same dimensions.
@@ -61,7 +61,7 @@ Nuncid can show zero to six neighboring destinations and offers four text sizes,
 The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
 
 <p align="center">
-  <img src="docs/screenshots/version-history-0.5.3.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
+  <img src="docs/screenshots/version-history-1.0.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
 </p>
 
 ## Smarter resolution, fewer wrong guesses
@@ -89,10 +89,11 @@ Those tools may contact their configured services using your existing credential
 
 ## Install
 
-1. Download [`Nuncid-0.5.1.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.5.1/Nuncid-0.5.1.zip).
+1. Download the current build from [Latest Release](https://github.com/markus-barta/nuncid/releases/latest).
 2. Move `Nuncid.app` to `~/Applications` or `/Applications`.
-3. Open Nuncid and grant Screen Recording when macOS asks.
-4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
+3. Open Nuncid. Public GitHub builds are currently locally signed and not notarized, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security**, find the Nuncid notice, and choose **Open Anyway**. Only override this protection for the app downloaded from this repository’s release page; Apple explains the same process in [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac).
+4. Grant Screen Recording when macOS asks.
+5. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
 
 Default commands:
 
@@ -129,7 +130,7 @@ swift build
 open dist/Nuncid.app
 ```
 
-The packaging script stages `dist/Nuncid.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so Screen Recording permission survives rebuilds without a paid signing identity.
+The packaging script stages `dist/Nuncid.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and, by default, applies a stable local designated requirement so Screen Recording permission survives rebuilds without a paid signing identity. The package records whether it was signed locally or with Developer ID; signature verification is not presented as notarization.
 
 ## Release and visual workflow
 
@@ -137,12 +138,30 @@ The packaging script stages `dist/Nuncid.app` outside SwiftPM's cleanable build 
 
 ```sh
 ./scripts/bump-version.sh patch "Short user-visible release summary"
-./scripts/test.sh
-./scripts/package-release.sh
-swift scripts/render-marketing-shots.swift
 ```
 
-The last command rebuilds the README hero and feature gallery from the real captured Nuncid interfaces plus the checked-in scan-field artwork. Historical GLINT captures and the [0.3.0 visual comparison](docs/compare-0.3.0.html) remain unchanged so the release record stays truthful. The [rename decision and migration record](docs/nuncid-rename-2026-08-30.md) documents the collision screen and compatibility choices.
+Add the matching benefit-led entry to `ReleaseHistory.swift`, then capture and compose the new interface before running consistency-gated tests:
+
+```sh
+./scripts/capture-release-shots.sh
+swift scripts/render-marketing-shots.swift
+./scripts/test.sh
+./scripts/package-release.sh
+./scripts/verify-release.sh
+```
+
+The capture script opens DEBUG-only visual probes long enough to save the current pinned card, Scanning, Appearance, and light/dark Version History. The compositor reads `VERSION` and rebuilds the README hero, feature gallery, and social preview from those same-version captures plus the checked-in scan-field artwork. Historical GLINT captures and the [0.3.0 visual comparison](docs/compare-0.3.0.html) remain unchanged so the release record stays truthful. The [rename decision and migration record](docs/nuncid-rename-2026-08-30.md) documents the collision screen and compatibility choices.
+
+Developer ID distribution is opt-in and requires credentials already stored in your macOS keychain. Apple requires Developer ID, hardened runtime, a secure timestamp, notarization, and a stapled ticket for the trusted distribution path; see [Apple’s notarization guidance](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+
+```sh
+NUNCID_SIGNING_IDENTITY='Developer ID Application: Example (TEAMID)' \
+NUNCID_NOTARY_PROFILE='nuncid-notary' \
+./scripts/package-release.sh
+NUNCID_EXPECT_NOTARIZED=1 ./scripts/verify-release.sh
+```
+
+Without those variables, packaging remains deliberately local/ad-hoc and verification says so. CI uses that credential-free path and never publishes an artifact. Complete Swift strict-concurrency checking is reserved for the Swift 6 migration; 1.0 remains in Swift 5 language mode and treats all warnings in its supported build mode as errors.
 
 ## Project map
 
@@ -152,8 +171,13 @@ Sources/Nuncid/Resources/    Packaged visual assets
 Fixtures/                    Deterministic hover/OCR test material
 docs/screenshots/            Raw product captures and rendered marketing images
 scripts/test.sh              Build, self-tests, and versioning regression checks
+scripts/check-release-consistency.sh
+                             README, changelog, history, and visual version parity
+scripts/capture-release-shots.sh
+                             Reproducible raw Settings, card, and history captures
 scripts/package-app.sh       Release build, app bundle, metadata, and local signing
 scripts/package-release.sh   Signed app plus versioned release archive
+scripts/verify-release.sh    Signature, archive, metadata, and portable smoke checks
 scripts/bump-version.sh      Semantic version and changelog update
 scripts/render-marketing-shots.swift
                              Reproducible GitHub image compositor

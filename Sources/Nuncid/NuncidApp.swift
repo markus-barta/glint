@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-enum NuncidBrand {
+@MainActor enum NuncidBrand {
     private static var resourceBundles: [Bundle] {
         var bundles = [Bundle.main]
         if let executable = Bundle.main.executableURL {
@@ -193,7 +193,7 @@ enum NuncidBrand {
         if let index = CommandLine.arguments.firstIndex(of: "--version-history-capture-probe"),
            CommandLine.arguments.indices.contains(index + 1) {
             let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 self?.versionHistoryWindowController?.captureProbe(to: url)
             }
         }
@@ -300,7 +300,7 @@ enum NuncidBrand {
 
 @MainActor final class VersionHistoryWindowController: NSWindowController {
     init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Nuncid Version History"
         window.titlebarSeparatorStyle = .line
         window.minSize = NSSize(width: 720, height: 480)
