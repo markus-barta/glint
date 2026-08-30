@@ -60,7 +60,7 @@ for reference in ${(f)download_references}; do
   fi
 done
 
-for stem in hero workflow settings-showcase version-history; do
+for stem in hero workflow lookup-highlight settings-showcase version-history; do
   grep -q "docs/screenshots/$stem-$version.png" "$readme" || {
     print -u2 "README does not reference current $stem-$version.png"
     exit 1
@@ -71,7 +71,7 @@ for stem in hero workflow settings-showcase version-history; do
   }
 done
 
-for stem in pinned-card settings-scanning settings-appearance version-history-dark social-preview; do
+for stem in pinned-card settings-scanning settings-pinned settings-appearance version-history-dark social-preview; do
   [[ -f "$repo_dir/docs/screenshots/$stem-$version.png" ]] || {
     print -u2 "Missing docs/screenshots/$stem-$version.png"
     exit 1

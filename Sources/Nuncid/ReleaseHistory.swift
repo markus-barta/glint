@@ -21,6 +21,19 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.1.0",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "Context stays put",
+            headline: "See exactly which ID Nuncid is using.",
+            intro: "A polished lock-on now connects the card back to the text on screen, then keeps the active lookup obvious without interrupting your work.",
+            items: [
+                ReleaseNoteItem(label: "Found with a little magic", detail: "A luminous sweep resolves around the recognized ID once, then settles into a calm marker that follows you as you browse results."),
+                ReleaseNoteItem(label: "Every match when you want it", detail: "A new pinned-card option keeps all detected IDs visible together while the active result remains unmistakable."),
+                ReleaseNoteItem(label: "Present, never in the way", detail: "Markers ignore the mouse, clear when their source moves, respect Reduce Motion, and remain excluded from screen capture.")
+            ]
+        ),
+        ReleaseNote(
             version: "1.0.0",
             isoDate: "2026-08-30",
             date: "30 August 2026",

@@ -22,6 +22,7 @@ print -r -- '1.2.3' > "$task_tmp_dir/VERSION"
 print -r -- '<img src="https://img.shields.io/badge/release-1.2.3-blue" alt="Latest release 1.2.3">
 <img src="docs/screenshots/hero-1.2.3.png">
 <img src="docs/screenshots/workflow-1.2.3.png">
+<img src="docs/screenshots/lookup-highlight-1.2.3.png">
 <img src="docs/screenshots/settings-showcase-1.2.3.png">
 <img src="docs/screenshots/version-history-1.2.3.png">' > "$task_tmp_dir/README.md"
 print -r -- '# Changelog
@@ -42,6 +43,7 @@ grep -q 'release-1.3.0-' "$task_tmp_dir/README.md"
 grep -q 'Latest release 1.3.0' "$task_tmp_dir/README.md"
 grep -q 'docs/screenshots/hero-1.3.0.png' "$task_tmp_dir/README.md"
 grep -q 'docs/screenshots/workflow-1.3.0.png' "$task_tmp_dir/README.md"
+grep -q 'docs/screenshots/lookup-highlight-1.3.0.png' "$task_tmp_dir/README.md"
 grep -q 'docs/screenshots/settings-showcase-1.3.0.png' "$task_tmp_dir/README.md"
 grep -q 'docs/screenshots/version-history-1.3.0.png' "$task_tmp_dir/README.md"
 print 'Nuncid versioning tests passed'

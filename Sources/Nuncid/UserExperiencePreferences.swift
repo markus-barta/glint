@@ -150,16 +150,22 @@ enum PopupScrollModifier: String, CaseIterable, Identifiable, Codable {
 }
 
 struct PopupInteractionPreferences: Equatable {
-    static let defaults = PopupInteractionPreferences(scrollModifier: .option, restorePinned: false)
+    static let defaults = PopupInteractionPreferences(
+        scrollModifier: .option,
+        restorePinned: false,
+        showAllDetectedIDsWhenPinned: false
+    )
 
     var scrollModifier: PopupScrollModifier
     var restorePinned: Bool
+    var showAllDetectedIDsWhenPinned: Bool
 
     static func load(defaults: UserDefaults = .standard) -> PopupInteractionPreferences {
         let prefix = "popup."
         return PopupInteractionPreferences(
             scrollModifier: PopupScrollModifier(rawValue: defaults.string(forKey: prefix + "scrollModifier") ?? "option") ?? .option,
-            restorePinned: defaults.bool(forKey: prefix + "restorePinned")
+            restorePinned: defaults.bool(forKey: prefix + "restorePinned"),
+            showAllDetectedIDsWhenPinned: defaults.bool(forKey: prefix + "showAllDetectedIDsWhenPinned")
         )
     }
 
@@ -167,6 +173,7 @@ struct PopupInteractionPreferences: Equatable {
         let prefix = "popup."
         defaults.set(scrollModifier.rawValue, forKey: prefix + "scrollModifier")
         defaults.set(restorePinned, forKey: prefix + "restorePinned")
+        defaults.set(showAllDetectedIDsWhenPinned, forKey: prefix + "showAllDetectedIDsWhenPinned")
         NotificationCenter.default.post(name: .nuncidPopupInteractionPreferencesDidChange, object: nil)
     }
 }

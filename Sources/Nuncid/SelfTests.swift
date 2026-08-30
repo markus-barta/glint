@@ -297,10 +297,10 @@ enum SelfTests {
         }
         guard ScanCuePolicy.showsInvoked(for: .explicitCommand),
               !ScanCuePolicy.showsInvoked(for: .automaticHover),
-              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: false, hasAnchor: false) == .noMatch,
-              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: false, hasAnchor: false) == .none,
-              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: true, hasAnchor: true) == .resolved,
-              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: true, hasAnchor: false) == .none else {
+              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: false) == .noMatch,
+              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: false) == .none,
+              ScanCuePolicy.terminal(for: .automaticHover, hasResolvedResult: true) == .none,
+              ScanCuePolicy.terminal(for: .explicitCommand, hasResolvedResult: true) == .none else {
             fputs("self-test failed: explicit-versus-automatic scan cues\n", stderr); exit(1)
         }
         guard ScanFeedbackDisappearancePolicy.shouldExpire(scheduledGeneration: 12, currentGeneration: 12),
@@ -320,6 +320,10 @@ enum SelfTests {
         let changedAnchor = ScanFeedbackAnchor(
             literal: "GLINT-25",
             bounds: CGRect(x: 120.1, y: 340.1, width: 72.1, height: 18.1)
+        )
+        let secondaryAnchor = ScanFeedbackAnchor(
+            literal: "HAUSV-38",
+            bounds: CGRect(x: 260, y: 280, width: 82, height: 18)
         )
         let recognizedPhase = ScanFeedbackPhase.recognized(
             anchors: [stableAnchor], selectedID: stableAnchor.id
@@ -341,11 +345,84 @@ enum SelfTests {
             incoming: .resolved(anchor: changedAnchor),
             generation: resolvedDecision.generation
         )
+        let activeOnly = LookupHighlightPolicy.visibleAnchors(
+            [stableAnchor, secondaryAnchor], selected: secondaryAnchor, showAll: false
+        )
+        let allLookupAnchors = LookupHighlightPolicy.visibleAnchors(
+            [stableAnchor, stableAnchor], selected: secondaryAnchor, showAll: true
+        )
+        let scannedSource = LookupSourceSnapshot(
+            processIdentifier: 42,
+            windowIdentifier: 7,
+            windowBounds: CGRect(x: 10, y: 20, width: 900, height: 700),
+            windowTitle: "NUNCID-52"
+        )
+        let movedSource = LookupSourceSnapshot(
+            processIdentifier: 42,
+            windowIdentifier: 7,
+            windowBounds: CGRect(x: 11, y: 20, width: 900, height: 700),
+            windowTitle: "NUNCID-52"
+        )
+        let midLockOn = FoundLockOnAnimationState.at(progress: 0.55)
+        let settledLockOn = FoundLockOnAnimationState.at(progress: 1)
+        let lookupDecision = ScanFeedbackPresentationPolicy.decision(
+            current: .lookup(
+                anchors: allLookupAnchors,
+                selectedID: secondaryAnchor.id,
+                celebratesFound: false
+            ),
+            incoming: .lookup(
+                anchors: allLookupAnchors,
+                selectedID: secondaryAnchor.id,
+                celebratesFound: false
+            ),
+            generation: changedDecision.generation
+        )
+        let animatedLookupDecision = ScanFeedbackPresentationPolicy.decision(
+            current: .lookup(
+                anchors: allLookupAnchors,
+                selectedID: secondaryAnchor.id,
+                celebratesFound: true
+            ),
+            incoming: .lookup(
+                anchors: allLookupAnchors,
+                selectedID: secondaryAnchor.id,
+                celebratesFound: false
+            ),
+            generation: lookupDecision.generation
+        )
         guard stableAnchor.id == reconstructedAnchor.id,
               stableAnchor.id != changedAnchor.id,
+              activeOnly == [secondaryAnchor],
+              allLookupAnchors == [stableAnchor, secondaryAnchor],
+              LookupHighlightVisibilityPolicy.shouldShow(
+                popupVisible: true,
+                mappedAnchorAvailable: true
+              ),
+              !LookupHighlightVisibilityPolicy.shouldShow(
+                popupVisible: false,
+                mappedAnchorAvailable: true
+              ),
+              LookupSourceLifecyclePolicy.remainsValid(
+                scanned: scannedSource,
+                current: scannedSource
+              ),
+              !LookupSourceLifecyclePolicy.remainsValid(
+                scanned: scannedSource,
+                current: movedSource
+              ),
+              midLockOn.sweepOpacity > 0,
+              midLockOn.particleOpacity > 0,
+              settledLockOn.sweep == 1,
+              settledLockOn.sweepOpacity == 0,
+              settledLockOn.confirmationOpacity == 0,
+              settledLockOn.particleOpacity == 0,
               recognizedDecision == .init(action: .refreshExpiry, generation: 21),
               resolvedDecision == .init(action: .refreshExpiry, generation: 22),
               changedDecision == .init(action: .rebuild, generation: 23),
+              lookupDecision == .init(action: .refreshExpiry, generation: 24),
+              animatedLookupDecision == .init(action: .rebuild, generation: 25),
+              ScanFeedbackStyleMetrics.foundAnimationDuration < 1,
               ScanFeedbackDisappearancePolicy.shouldExpire(
                 scheduledGeneration: resolvedDecision.generation,
                 currentGeneration: resolvedDecision.generation
@@ -433,7 +510,11 @@ enum SelfTests {
             preferences: customPresentation,
             visibleFrame: CGRect(x: 0, y: 0, width: 720, height: 300)
         )
-        let popupPreferences = PopupInteractionPreferences(scrollModifier: .command, restorePinned: true)
+        let popupPreferences = PopupInteractionPreferences(
+            scrollModifier: .command,
+            restorePinned: true,
+            showAllDetectedIDsWhenPinned: true
+        )
         popupPreferences.persist(defaults: defaults)
         let forwardGeneration = 1
         let reverseGeneration = 2
