@@ -21,6 +21,20 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.5.1",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "Motion with meaning",
+            headline: "Watch every ticket move exactly where it belongs.",
+            intro: "Scrolling now preserves visual identity: the ticket key and title travel between the spatial rail and the fixed card in one clean, continuous motion.",
+            items: [
+                ReleaseNoteItem(label: "Follow the result", detail: "The next ticket’s key and first title line glide into the card while the previous selection moves back into the rail."),
+                ReleaseNoteItem(label: "Nothing jumps", detail: "The card and its title area reserve stable space across every result, so different content lengths never push the interface around."),
+                ReleaseNoteItem(label: "Words land first", detail: "Long titles stay on one line while moving, then reveal their wrapped lines only after reaching the card."),
+                ReleaseNoteItem(label: "Calm when requested", detail: "Reduce Motion keeps the same orientation with a quiet opacity change instead of spatial movement.")
+            ]
+        ),
+        ReleaseNote(
             version: "0.5.0",
             isoDate: "2026-08-30",
             date: "30 August 2026",

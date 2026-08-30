@@ -368,7 +368,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let stress = CommandLine.arguments.contains("--overlay-stress-probe")
             let single = CommandLine.arguments.contains("--overlay-single-probe")
             let minimumStress = CommandLine.arguments.contains("--overlay-minimum-stress-probe")
-            let lines: [TicketLine] = minimumStress ? [
+            let keyFlight = CommandLine.arguments.contains("--overlay-key-flight-probe")
+            let lines: [TicketLine] = keyFlight ? [
+                TicketLine(key: "HAUSV-16", state: "in-progress", title: "Current result holds its exact card position", source: "ppm", detail: "Only the key label travels when the wheel advances."),
+                TicketLine(key: "HAUSV-38", state: "done", title: "Next result arrives cleanly in the fixed card header without wrapping until its motion has finished", source: "ppm", detail: "Matched identity gives the movement one continuous path."),
+                TicketLine(key: "HAUSV-52", state: "backlog", title: "Following result remains ready below", source: "ppm"),
+                TicketLine(key: "HAUSV-11", state: "done", title: "Previous result stays oriented above", source: "ppm")
+            ] : minimumStress ? [
                 TicketLine(key: "NUNCID-34", state: "in-progress", title: "Make a very small custom card adapt safely to unusually long real-world ticket content", source: "ppm", metadata: "ticket · high priority · release 0.5", detail: "This deliberately long detail verifies that extra-large detailed content remains inside the rounded popup surface even at the minimum remembered dimensions."),
                 TicketLine(key: "NUNCID-36", state: "done", title: "Navigate spatially", source: "ppm"),
                 TicketLine(key: "NUNCID-35", state: "done", title: "Open the source", source: "ppm")
@@ -391,10 +397,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 overlay.pin(shortcutLabel: "⌥⇧Space")
             }
             probeOverlay = overlay
+            if keyFlight {
+                if CommandLine.arguments.contains("--overlay-key-flight-new-results-probe") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { overlay.advanceCaptureProbe() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { overlay.advanceCaptureProbe() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) { overlay.advanceCaptureProbe() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+                        overlay.replacePinnedResults(lines, selecting: "HAUSV-16")
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { overlay.advanceCaptureProbe() }
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { overlay.advanceCaptureProbe() }
+                }
+                if CommandLine.arguments.contains("--overlay-key-flight-reverse-probe") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { overlay.retreatCaptureProbe() }
+                }
+            }
             if let index = CommandLine.arguments.firstIndex(of: "--overlay-capture-probe"),
                CommandLine.arguments.indices.contains(index + 1) {
                 let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { overlay.captureProbe(to: url) }
+                let newResultsFlight = CommandLine.arguments.contains("--overlay-key-flight-new-results-probe")
+                let settledFlight = CommandLine.arguments.contains("--overlay-key-flight-settled-probe")
+                let delay = keyFlight
+                    ? (newResultsFlight ? (settledFlight ? 1.35 : 0.94) : (settledFlight ? 0.82 : (CommandLine.arguments.contains("--overlay-key-flight-reverse-probe") ? 0.43 : 0.31)))
+                    : 0.4
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { overlay.captureProbe(to: url) }
             }
         }
 #endif

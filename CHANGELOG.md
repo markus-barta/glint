@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-30
+
+- Animate ticket keys and title lines smoothly between NEXT, the fixed card, and PREVIOUS without mid-flight wrapping or layout jumps.
+
 ## [0.5.0] - 2026-08-30
 
 - Make the popup a calm spatial navigator with direct pinning, remembered resizing, source links, global wheel control, and F1–F20 shortcuts.

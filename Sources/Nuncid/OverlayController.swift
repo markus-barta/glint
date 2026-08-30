@@ -18,20 +18,18 @@ enum OverlayMetrics {
         lines: [TicketLine],
         sticky: Bool,
         preferences: PresentationPreferences,
-        selectedIndex: Int = 0,
         width: CGFloat? = nil
     ) -> CGFloat {
         let resolvedWidth = max(360, width ?? (preferences.width == .custom ? preferences.customWidth : preferences.width.points))
         guard !lines.isEmpty else { return sticky ? 236 : 180 }
-        let normalizedIndex = ((selectedIndex % lines.count) + lines.count) % lines.count
-        let primary = primaryHeight(line: lines[normalizedIndex], preferences: preferences, width: resolvedWidth)
+        let primary = stablePrimaryHeight(lines: lines, preferences: preferences, width: resolvedWidth)
         let alternatives = min(preferences.alternativePreviews, max(0, lines.count - 1))
         let rail = alternativeBlockHeight(count: alternatives, sticky: sticky, preferences: preferences)
         let body = primary + (rail > 0 ? sectionSpacing + rail : 0)
         return ceil(body + (sticky ? pinnedReservedChromeHeight : outerPadding * 2))
     }
 
-    static func size(lines: [TicketLine], sticky: Bool, preferences: PresentationPreferences, selectedIndex: Int = 0, visibleFrame: CGRect) -> CGSize {
+    static func size(lines: [TicketLine], sticky: Bool, preferences: PresentationPreferences, visibleFrame: CGRect) -> CGSize {
         if preferences.width == .custom {
             return OverlaySizePolicy.clamped(
                 CGSize(width: preferences.customWidth, height: preferences.customHeight),
@@ -39,7 +37,7 @@ enum OverlayMetrics {
             )
         }
         let width = min(preferences.width.points, max(OverlaySizePolicy.minimum.width, visibleFrame.width - 24))
-        let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences, selectedIndex: selectedIndex, width: width)
+        let preferred = preferredHeight(lines: lines, sticky: sticky, preferences: preferences, width: width)
         return OverlaySizePolicy.clampedToVisibleMaximum(
             CGSize(width: width, height: preferred),
             visibleFrame: visibleFrame
@@ -48,7 +46,6 @@ enum OverlayMetrics {
 
     static func visibleAlternativeCount(
         lines: [TicketLine],
-        selectedIndex: Int,
         preferences: PresentationPreferences,
         width: CGFloat,
         totalHeight: CGFloat,
@@ -57,8 +54,7 @@ enum OverlayMetrics {
         guard !lines.isEmpty else { return 0 }
         let requested = min(preferences.alternativePreviews, max(0, lines.count - 1))
         guard requested > 0 else { return 0 }
-        let normalizedIndex = ((selectedIndex % lines.count) + lines.count) % lines.count
-        let primary = primaryHeight(line: lines[normalizedIndex], preferences: preferences, width: width)
+        let primary = stablePrimaryHeight(lines: lines, preferences: preferences, width: width)
         let available = sticky
             ? pinnedBodyHeight(totalHeight: totalHeight)
             : temporaryBodyHeight(totalHeight: totalHeight)
@@ -76,12 +72,10 @@ enum OverlayMetrics {
         let textWidth = max(160, width - outerPadding * 2 - cardPadding * 2)
         let scale = preferences.textSize.scale
         let keyFont = NSFont.monospacedSystemFont(ofSize: 15 * scale, weight: .bold)
-        let titleFont = NSFont.systemFont(ofSize: 17 * scale, weight: .semibold)
         let detailFont = NSFont.systemFont(ofSize: 13 * scale)
         let metadataFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let header = max(22, lineHeight(for: keyFont))
-        let titleLines = preferences.density == .detailed ? 3 : 2
-        let title = boundedTextHeight(line.title, font: titleFont, width: textWidth, lineLimit: titleLines)
+        let title = primaryTitleHeight(line: line, preferences: preferences, width: width)
 
         var childHeights = [header, title]
         if preferences.density.showsDetail, !line.detail.isEmpty {
@@ -92,6 +86,26 @@ enum OverlayMetrics {
         }
         let spacing = preferences.density == .compact ? CGFloat(6) : CGFloat(10)
         return ceil(childHeights.reduce(0, +) + CGFloat(max(0, childHeights.count - 1)) * spacing + cardPadding * 2)
+    }
+
+    static func stablePrimaryHeight(lines: [TicketLine], preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
+        let stableTitle = stablePrimaryTitleHeight(lines: lines, preferences: preferences, width: width)
+        return lines.map {
+            primaryHeight(line: $0, preferences: preferences, width: width)
+                - primaryTitleHeight(line: $0, preferences: preferences, width: width)
+                + stableTitle
+        }.max() ?? 0
+    }
+
+    static func primaryTitleHeight(line: TicketLine, preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
+        let textWidth = max(160, width - outerPadding * 2 - preferences.density.verticalPadding * 2)
+        let titleFont = NSFont.systemFont(ofSize: 17 * preferences.textSize.scale, weight: .semibold)
+        let titleLines = preferences.density == .detailed ? 3 : 2
+        return boundedTextHeight(line.title, font: titleFont, width: textWidth, lineLimit: titleLines)
+    }
+
+    static func stablePrimaryTitleHeight(lines: [TicketLine], preferences: PresentationPreferences, width: CGFloat) -> CGFloat {
+        lines.map { primaryTitleHeight(line: $0, preferences: preferences, width: width) }.max() ?? 0
     }
 
     static func alternativeBlockHeight(count: Int, sticky: Bool, preferences: PresentationPreferences) -> CGFloat {
@@ -196,28 +210,163 @@ struct StatusPill: View {
     }
 }
 
+enum TicketKeyMotionStyle: Equatable {
+    case matchedFlight
+    case opacityOnly
+}
+
+enum TicketKeyMotionPolicy {
+    static let titleSettleDelay: TimeInterval = 0.38
+
+    static func style(reduceMotion: Bool) -> TicketKeyMotionStyle {
+        reduceMotion ? .opacityOnly : .matchedFlight
+    }
+}
+
+enum TicketTitleSettlePolicy {
+    static func nextGeneration(after current: Int) -> Int {
+        current + 1
+    }
+
+    static func isSettled(
+        navigationGeneration: Int,
+        settledGeneration: Int,
+        reduceMotion: Bool
+    ) -> Bool {
+        reduceMotion || settledGeneration >= navigationGeneration
+    }
+
+    static func completedGeneration(current: Int, callbackGeneration: Int) -> Int {
+        max(current, callbackGeneration)
+    }
+}
+
+private enum TicketKeyRole: Equatable {
+    case primary
+    case neighbor
+}
+
+private struct TicketKeyLabel: View {
+    let line: TicketLine
+    let role: TicketKeyRole
+    let preferences: PresentationPreferences
+    let namespace: Namespace.ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder var body: some View {
+        if TicketKeyMotionPolicy.style(reduceMotion: reduceMotion) == .matchedFlight {
+            styledLabel
+                .matchedGeometryEffect(
+                    id: "ticket-key-\(line.id)",
+                    in: namespace,
+                    properties: .frame,
+                    anchor: .center,
+                    isSource: role == .primary
+                )
+                .zIndex(20)
+        } else {
+            styledLabel
+                .contentTransition(.opacity)
+        }
+    }
+
+    @ViewBuilder private var styledLabel: some View {
+        switch role {
+        case .primary:
+            Text(line.key)
+                .font(.system(size: 15 * preferences.textSize.scale, weight: .bold, design: .monospaced))
+                .foregroundStyle(.tint)
+                .lineLimit(1)
+                .fixedSize()
+        case .neighbor:
+            Text(line.key)
+                .font(.system(size: 12.5 * preferences.textSize.scale, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .frame(minWidth: 88, alignment: .leading)
+        }
+    }
+}
+
+private struct TicketTitleLabel: View {
+    let line: TicketLine
+    let role: TicketKeyRole
+    let preferences: PresentationPreferences
+    let namespace: Namespace.ID
+    let primaryTitleSettled: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @ViewBuilder var body: some View {
+        if TicketKeyMotionPolicy.style(reduceMotion: reduceMotion) == .matchedFlight {
+            styledLabel
+                .matchedGeometryEffect(
+                    id: "ticket-title-\(line.id)",
+                    in: namespace,
+                    properties: .frame,
+                    anchor: .leading,
+                    isSource: role == .primary
+                )
+                .zIndex(19)
+        } else {
+            styledLabel
+                .contentTransition(.opacity)
+        }
+    }
+
+    @ViewBuilder private var styledLabel: some View {
+        switch role {
+        case .primary:
+            Text(line.title)
+                .font(.system(size: 17 * preferences.textSize.scale, weight: .semibold))
+                .lineLimit(primaryTitleSettled ? (preferences.density == .detailed ? 3 : 2) : 1)
+                .fixedSize(horizontal: false, vertical: true)
+        case .neighbor:
+            Text(line.title)
+                .font(.system(size: 12.5 * preferences.textSize.scale, weight: .medium))
+                .lineLimit(1)
+        }
+    }
+}
+
 struct PrimaryResultCard: View {
     let line: TicketLine
     let preferences: PresentationPreferences
+    let keyNamespace: Namespace.ID
+    let fixedHeight: CGFloat
+    let titleSlotHeight: CGFloat
+    let primaryTitleSettled: Bool
     let showsPin: Bool
     let isPinned: Bool
     let onTogglePin: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: preferences.density == .compact ? 6 : 10) {
             HStack(spacing: 8) {
-                Text(line.key).font(.system(size: 15 * preferences.textSize.scale, weight: .bold, design: .monospaced)).foregroundStyle(.tint)
+                TicketKeyLabel(line: line, role: .primary, preferences: preferences, namespace: keyNamespace)
                 StatusPill(state: line.state)
                 Spacer(minLength: 8)
                 SourceDestinationLink(line: line)
                 if showsPin { PinToggleButton(isPinned: isPinned, action: onTogglePin) }
             }
-            Text(line.title).font(.system(size: 17 * preferences.textSize.scale, weight: .semibold)).lineLimit(preferences.density == .detailed ? 3 : 2).fixedSize(horizontal: false, vertical: true)
+            TicketTitleLabel(
+                line: line,
+                role: .primary,
+                preferences: preferences,
+                namespace: keyNamespace,
+                primaryTitleSettled: primaryTitleSettled
+            )
+            .frame(height: titleSlotHeight, alignment: .topLeading)
+            .clipped()
             if preferences.density.showsDetail, !line.detail.isEmpty {
                 Text(line.detail).font(.system(size: 13 * preferences.textSize.scale)).foregroundStyle(.secondary).lineLimit(preferences.density.detailLines).fixedSize(horizontal: false, vertical: true)
             }
             if preferences.density.showsMetadata, !line.metadata.isEmpty { Text(line.metadata).font(.caption).foregroundStyle(.tertiary).lineLimit(1) }
         }
         .padding(preferences.density.verticalPadding).frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: fixedHeight, alignment: .top)
+        .clipped()
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(nsColor: .controlBackgroundColor).opacity(0.82)))
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Color.accentColor).frame(width: 4).padding(.vertical, 10)
@@ -281,18 +430,20 @@ struct AlternativeResultRow: View {
     let position: Int
     let line: TicketLine
     let preferences: PresentationPreferences
+    let keyNamespace: Namespace.ID
     var body: some View {
         HStack(spacing: 8) {
             Text("\(position)")
                 .font(.caption2.monospacedDigit().weight(.bold)).foregroundStyle(.secondary)
                 .frame(width: 22, height: 22).background(Color.primary.opacity(0.07), in: Circle())
-            Text(line.key)
-                .font(.system(size: 12.5 * preferences.textSize.scale, weight: .bold, design: .monospaced))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .frame(minWidth: 88, alignment: .leading)
-            Text(line.title).font(.system(size: 12.5 * preferences.textSize.scale, weight: .medium)).lineLimit(1)
+            TicketKeyLabel(line: line, role: .neighbor, preferences: preferences, namespace: keyNamespace)
+            TicketTitleLabel(
+                line: line,
+                role: .neighbor,
+                preferences: preferences,
+                namespace: keyNamespace,
+                primaryTitleSettled: true
+            )
             Spacer(minLength: 4)
             Text(line.source.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             StatusPill(state: line.state)
@@ -303,6 +454,7 @@ struct AlternativeResultRow: View {
 struct OverlayContent: View {
     let lines: [TicketLine]
     let selectedIndex: Int
+    let navigationGeneration: Int
     let sticky: Bool
     let shortcutLabel: String
     let statusText: String?
@@ -314,6 +466,8 @@ struct OverlayContent: View {
     let onTogglePin: () -> Void
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var ticketKeyNamespace
+    @State private var settledTitleGeneration = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -339,13 +493,51 @@ struct OverlayContent: View {
         .frame(width: constrainedSize.width, height: constrainedSize.height, alignment: .top)
         .background { surface }
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.18)))
+        .onChange(of: navigationGeneration) { generation in
+            if reduceMotion {
+                settledTitleGeneration = TicketTitleSettlePolicy.completedGeneration(
+                    current: settledTitleGeneration,
+                    callbackGeneration: generation
+                )
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + TicketKeyMotionPolicy.titleSettleDelay) {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        settledTitleGeneration = TicketTitleSettlePolicy.completedGeneration(
+                            current: settledTitleGeneration,
+                            callbackGeneration: generation
+                        )
+                    }
+                }
+            }
+        }
+        .onChange(of: reduceMotion) { enabled in
+            if enabled {
+                settledTitleGeneration = TicketTitleSettlePolicy.completedGeneration(
+                    current: settledTitleGeneration,
+                    callbackGeneration: navigationGeneration
+                )
+            }
+        }
     }
 
     private var selectedLine: TicketLine? { lines.indices.contains(selectedIndex) ? lines[selectedIndex] : lines.first }
+    private var primarySlotHeight: CGFloat {
+        OverlayMetrics.stablePrimaryHeight(
+            lines: lines,
+            preferences: preferences,
+            width: constrainedSize.width
+        )
+    }
+    private var primaryTitleSlotHeight: CGFloat {
+        OverlayMetrics.stablePrimaryTitleHeight(
+            lines: lines,
+            preferences: preferences,
+            width: constrainedSize.width
+        )
+    }
     private var neighborIndices: (previous: [Int], next: [Int]) {
         let visibleCount = OverlayMetrics.visibleAlternativeCount(
             lines: lines,
-            selectedIndex: selectedIndex,
             preferences: preferences,
             width: constrainedSize.width,
             totalHeight: constrainedSize.height,
@@ -362,9 +554,21 @@ struct OverlayContent: View {
         VStack(alignment: .leading, spacing: OverlayMetrics.sectionSpacing) {
             neighborResults(indices: neighborIndices.previous, title: "PREVIOUS")
             if let line = selectedLine {
-                PrimaryResultCard(line: line, preferences: preferences, showsPin: !sticky, isPinned: sticky, onTogglePin: onTogglePin)
-                    .id(line.id)
-                    .transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                PrimaryResultCard(
+                    line: line,
+                    preferences: preferences,
+                    keyNamespace: ticketKeyNamespace,
+                    fixedHeight: primarySlotHeight,
+                    titleSlotHeight: primaryTitleSlotHeight,
+                    primaryTitleSettled: TicketTitleSettlePolicy.isSettled(
+                        navigationGeneration: navigationGeneration,
+                        settledGeneration: settledTitleGeneration,
+                        reduceMotion: reduceMotion
+                    ),
+                    showsPin: !sticky,
+                    isPinned: sticky,
+                    onTogglePin: onTogglePin
+                )
             } else {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.small)
@@ -383,7 +587,10 @@ struct OverlayContent: View {
                 .padding(.horizontal, 8)
             }
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.84), value: selectedIndex)
+        .animation(
+            reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.88),
+            value: selectedIndex
+        )
     }
 
     private var pinnedHeader: some View {
@@ -410,7 +617,12 @@ struct OverlayContent: View {
                 }.padding(.horizontal, 8)
                 VStack(spacing: 0) {
                     ForEach(Array(indices.enumerated()), id: \.element) { offset, index in
-                        AlternativeResultRow(position: index + 1, line: lines[index], preferences: preferences)
+                        AlternativeResultRow(
+                            position: index + 1,
+                            line: lines[index],
+                            preferences: preferences,
+                            keyNamespace: ticketKeyNamespace
+                        )
                             .transition(neighborTransition(title: title))
                         if offset < indices.count - 1 { Divider().padding(.leading, 38) }
                     }
@@ -471,7 +683,7 @@ struct AppearanceCardPreview: View {
                 availableWidth: max(1, proxy.size.width - 4),
                 contentHeight: height
             )
-            OverlayContent(lines: sampleLines, selectedIndex: 0, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height), scrollModifier: .option, onTogglePin: {})
+            OverlayContent(lines: sampleLines, selectedIndex: 0, navigationGeneration: 0, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height), scrollModifier: .option, onTogglePin: {})
                 .scaleEffect(scale, anchor: .topLeading)
                 .frame(width: actualWidth * scale, height: height * scale, alignment: .topLeading)
                 .accessibilityLabel("Live ticket card preview")
@@ -485,6 +697,7 @@ struct AppearanceCardPreview: View {
 @MainActor private final class OverlayViewState: ObservableObject {
     @Published var lines: [TicketLine] = []
     @Published var selectedIndex = 0
+    @Published var navigationGeneration = 0
     @Published var sticky = false
     @Published var shortcutLabel = "⌥⇧Space"
     @Published var statusText: String?
@@ -503,6 +716,7 @@ private struct OverlayRootView: View {
             OverlayContent(
                 lines: state.lines,
                 selectedIndex: state.selectedIndex,
+                navigationGeneration: state.navigationGeneration,
                 sticky: state.sticky,
                 shortcutLabel: state.shortcutLabel,
                 statusText: state.statusText,
@@ -529,6 +743,7 @@ private struct OverlayRootView: View {
     private let viewState = OverlayViewState()
     private var displayedLines: [TicketLine] = []
     private var selectedIndex = 0
+    private var navigationGeneration = 0
     private var anchorMouse = CGPoint.zero
     private var shortcutLabel = "⌥⇧Space"
     private var statusText: String?
@@ -557,6 +772,14 @@ private struct OverlayRootView: View {
         view.cacheDisplay(in: view.bounds, to: representation)
         guard let data = representation.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    func advanceCaptureProbe() {
+        cycleResult(1)
+    }
+
+    func retreatCaptureProbe() {
+        cycleResult(-1)
     }
 #endif
 
@@ -780,6 +1003,7 @@ private struct OverlayRootView: View {
 
     private func cycleResult(_ direction: Int) {
         guard displayedLines.count > 1 else { return }
+        navigationGeneration = TicketTitleSettlePolicy.nextGeneration(after: navigationGeneration)
         selectedIndex = CircularNavigation.advancedIndex(current: selectedIndex, direction: direction, count: displayedLines.count)
         inputText = nil; projectPreview = nil; syncViewState()
         if let selectedLine { onSelectionChange?(selectedLine) }
@@ -788,7 +1012,7 @@ private struct OverlayRootView: View {
     private func renderTemporary() {
         guard let targetScreen = screen(containing: anchorMouse) else { hide(); return }
         let visible = targetScreen.visibleFrame
-        let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, selectedIndex: selectedIndex, visibleFrame: visible)
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: false, preferences: presentationPreferences, visibleFrame: visible)
         var origin = CGPoint(x: anchorMouse.x + 18, y: anchorMouse.y - size.height - 18)
         if origin.x + size.width > visible.maxX { origin.x = anchorMouse.x - size.width - 18 }
         if origin.y < visible.minY { origin.y = anchorMouse.y + 18 }
@@ -804,7 +1028,7 @@ private struct OverlayRootView: View {
             hide(); return
         }
         let visible = targetScreen.visibleFrame
-        let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, selectedIndex: selectedIndex, visibleFrame: visible)
+        let size = OverlayMetrics.size(lines: displayedLines, sticky: true, preferences: presentationPreferences, visibleFrame: visible)
         let origin = useSavedPosition ? savedOrigin(for: targetScreen, size: size) : PanelPlacement.clamped(origin: panel.frame.origin, size: size, visibleFrame: visible)
         updatePanelSizeLimits(for: targetScreen)
         syncViewState()
@@ -815,6 +1039,7 @@ private struct OverlayRootView: View {
     private func syncViewState() {
         viewState.lines = displayedLines
         viewState.selectedIndex = selectedIndex
+        viewState.navigationGeneration = navigationGeneration
         viewState.sticky = isSticky
         viewState.shortcutLabel = shortcutLabel
         viewState.statusText = statusText

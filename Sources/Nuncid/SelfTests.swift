@@ -442,10 +442,50 @@ enum SelfTests {
         )
         let popupPreferences = PopupInteractionPreferences(scrollModifier: .command, restorePinned: true)
         popupPreferences.persist(defaults: defaults)
+        let forwardGeneration = 1
+        let reverseGeneration = 2
+        let staleCompletedGeneration = TicketTitleSettlePolicy.completedGeneration(
+            current: 0,
+            callbackGeneration: forwardGeneration
+        )
+        let reverseCompletedGeneration = TicketTitleSettlePolicy.completedGeneration(
+            current: staleCompletedGeneration,
+            callbackGeneration: reverseGeneration
+        )
+        let alreadySettledGeneration = 7
+        let nextResultSetFlightGeneration = TicketTitleSettlePolicy.nextGeneration(
+            after: alreadySettledGeneration
+        )
         guard PresentationPreferences.load(defaults: defaults) == customPresentation,
               customOverlay == CGSize(width: 704, height: 284),
               neighborRail.previous == [0, 1, 2],
               neighborRail.next == [4, 5, 6],
+              TicketKeyMotionPolicy.style(reduceMotion: false) == .matchedFlight,
+              TicketKeyMotionPolicy.style(reduceMotion: true) == .opacityOnly,
+              TicketKeyMotionPolicy.titleSettleDelay >= 0.34,
+              forwardGeneration == 1,
+              reverseGeneration == 2,
+              !TicketTitleSettlePolicy.isSettled(
+                  navigationGeneration: reverseGeneration,
+                  settledGeneration: staleCompletedGeneration,
+                  reduceMotion: false
+              ),
+              TicketTitleSettlePolicy.isSettled(
+                  navigationGeneration: reverseGeneration,
+                  settledGeneration: reverseCompletedGeneration,
+                  reduceMotion: false
+              ),
+              TicketTitleSettlePolicy.isSettled(
+                  navigationGeneration: reverseGeneration,
+                  settledGeneration: 0,
+                  reduceMotion: true
+              ),
+              nextResultSetFlightGeneration == 8,
+              !TicketTitleSettlePolicy.isSettled(
+                  navigationGeneration: nextResultSetFlightGeneration,
+                  settledGeneration: alreadySettledGeneration,
+                  reduceMotion: false
+              ),
               PopupInteractionPreferences.load(defaults: defaults) == popupPreferences,
               PopupScrollModifier.option.matches([.option, .capsLock]),
               !PopupScrollModifier.option.matches([.option, .shift]) else {
@@ -475,6 +515,32 @@ enum SelfTests {
         let previewLines = (1...6).map {
             TicketLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")
         }
+        let variedPrimaryLines = [
+            TicketLine(key: "NUNCID-16", state: "done", title: "Short title", source: "ppm"),
+            TicketLine(key: "HAUSV-38", state: "in-progress", title: "A much longer title that wraps and proves the primary card does not move while identities travel", source: "ppm", metadata: "ticket · high priority", detail: "Longer supporting detail occupies the stable slot without pushing either spatial rail.")
+        ]
+        let stablePrimary = OverlayMetrics.stablePrimaryHeight(
+            lines: variedPrimaryLines,
+            preferences: presentation,
+            width: presentation.width.points
+        )
+        let individualPrimaryHeights = variedPrimaryLines.map({
+            OverlayMetrics.primaryHeight(line: $0, preferences: presentation, width: presentation.width.points)
+        })
+        guard individualPrimaryHeights.allSatisfy({ stablePrimary >= $0 }),
+              OverlayMetrics.stablePrimaryTitleHeight(
+                  lines: variedPrimaryLines,
+                  preferences: presentation,
+                  width: presentation.width.points
+              ) == variedPrimaryLines.map({
+                  OverlayMetrics.primaryTitleHeight(
+                      line: $0,
+                      preferences: presentation,
+                      width: presentation.width.points
+                  )
+              }).max() else {
+            fputs("self-test failed: stable primary slot and ticket-key motion policy\n", stderr); exit(1)
+        }
         var shortTemporaryPreferences = customPresentation
         shortTemporaryPreferences.alternativePreviews = 6
         shortTemporaryPreferences.customWidth = 420
@@ -487,7 +553,6 @@ enum SelfTests {
         )
         let shortTemporaryNeighbors = OverlayMetrics.visibleAlternativeCount(
             lines: previewLines,
-            selectedIndex: 0,
             preferences: shortTemporaryPreferences,
             width: shortTemporarySize.width,
             totalHeight: shortTemporarySize.height,
@@ -544,7 +609,6 @@ enum SelfTests {
         )
         let shortAlternativeCount = OverlayMetrics.visibleAlternativeCount(
             lines: shortStressLines,
-            selectedIndex: 0,
             preferences: presentation,
             width: shortOverlay.width,
             totalHeight: shortOverlay.height,

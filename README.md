@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.5.0-0A84FF?style=flat-square" alt="Latest release 0.5.0"></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.5.1-0A84FF?style=flat-square" alt="Latest release 0.5.1"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -38,6 +38,8 @@ Nuncid watches a small area around the pointer, recognizes ticket keys and numbe
 
 The small scan cue shows where Nuncid is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
 
+When you scroll, the ticket key and first title line travel between NEXT, the fixed card, and PREVIOUS. Long titles remain on one line while moving, then reveal their wrapped lines after landing—so the card never jumps.
+
 ## Your shortcuts. Your card.
 
 Activation and presentation are independent on purpose. Record any safe global shortcut, choose Off, Toggle Hover, or Press to Scan, and tune how much information the card shows. The menu bar icon shows when hover is active and confirms when it finds a ticket. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
@@ -57,7 +59,7 @@ Nuncid can show zero to six neighboring destinations and offers four text sizes,
 The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
 
 <p align="center">
-  <img src="docs/screenshots/version-history-0.5.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
+  <img src="docs/screenshots/version-history-0.5.1.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
 </p>
 
 ## Smarter resolution, fewer wrong guesses
@@ -85,7 +87,7 @@ Those tools may contact their configured services using your existing credential
 
 ## Install
 
-1. Download [`Nuncid-0.5.0.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.5.0/Nuncid-0.5.0.zip).
+1. Download [`Nuncid-0.5.1.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.5.1/Nuncid-0.5.1.zip).
 2. Move `Nuncid.app` to `~/Applications` or `/Applications`.
 3. Open Nuncid and grant Screen Recording when macOS asks.
 4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
