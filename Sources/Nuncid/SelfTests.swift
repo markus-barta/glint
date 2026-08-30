@@ -456,6 +456,8 @@ enum SelfTests {
         let nextResultSetFlightGeneration = TicketTitleSettlePolicy.nextGeneration(
             after: alreadySettledGeneration
         )
+        let upwardRail = SpatialRailTransitionPolicy.boundaries(navigationDirection: 1)
+        let downwardRail = SpatialRailTransitionPolicy.boundaries(navigationDirection: -1)
         guard PresentationPreferences.load(defaults: defaults) == customPresentation,
               customOverlay == CGSize(width: 704, height: 284),
               neighborRail.previous == [0, 1, 2],
@@ -486,6 +488,14 @@ enum SelfTests {
                   settledGeneration: alreadySettledGeneration,
                   reduceMotion: false
               ),
+              upwardRail.insertion == .bottom,
+              upwardRail.removal == .top,
+              downwardRail.insertion == .top,
+              downwardRail.removal == .bottom,
+              SpatialRailTransitionPolicy.directionLeadTime > 0,
+              SpatialRailTransitionPolicy.directionLeadTime <= 1.0 / 60.0,
+              PinnedHeaderLayoutPolicy.contextWidth(totalWidth: 420) == 100,
+              PinnedHeaderLayoutPolicy.contextWidth(totalWidth: 590) == 176,
               PopupInteractionPreferences.load(defaults: defaults) == popupPreferences,
               PopupScrollModifier.option.matches([.option, .capsLock]),
               !PopupScrollModifier.option.matches([.option, .shift]) else {

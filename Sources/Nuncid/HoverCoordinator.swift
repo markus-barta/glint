@@ -122,6 +122,7 @@ enum PinnedScanOwnershipPolicy {
         overlay = OverlayController()
 #endif
         overlay.onCycleProject = { [weak self] direction in self?.cycleProject(direction) }
+        overlay.onClose = { [weak self] in self?.closePinned() }
         overlay.onInput = { [weak self] event in self?.handleInput(event) }
         overlay.onSelectionChange = { [weak self] _ in self?.syncSelectionContext() }
         overlay.onTogglePin = { [weak self] in self?.togglePinFromOverlay() }

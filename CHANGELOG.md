@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-30
+
+- Make every row follow one continuous scroll direction, with a centered pinned header and direct close, project, and result controls.
+
 ## [0.5.1] - 2026-08-30
 
 - Animate ticket keys and title lines smoothly between NEXT, the fixed card, and PREVIOUS without mid-flight wrapping or layout jumps.

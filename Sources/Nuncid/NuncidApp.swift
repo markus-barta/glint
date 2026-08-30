@@ -396,6 +396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !CommandLine.arguments.contains("--overlay-temporary-probe") {
                 overlay.pin(shortcutLabel: "⌥⇧Space")
             }
+            if CommandLine.arguments.contains("--overlay-header-context-probe") {
+                overlay.setInput("HAUSVERW", projectPreview: "HAUSVERW")
+            }
             probeOverlay = overlay
             if keyFlight {
                 if CommandLine.arguments.contains("--overlay-key-flight-new-results-probe") {

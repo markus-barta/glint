@@ -241,6 +241,34 @@ enum TicketTitleSettlePolicy {
     }
 }
 
+enum SpatialRailBoundary: Equatable {
+    case top
+    case bottom
+
+    var edge: Edge {
+        switch self {
+        case .top: return .top
+        case .bottom: return .bottom
+        }
+    }
+}
+
+enum SpatialRailTransitionPolicy {
+    static let directionLeadTime: TimeInterval = 1.0 / 120.0
+
+    static func boundaries(navigationDirection: Int) -> (insertion: SpatialRailBoundary, removal: SpatialRailBoundary) {
+        navigationDirection >= 0
+            ? (insertion: .bottom, removal: .top)
+            : (insertion: .top, removal: .bottom)
+    }
+}
+
+enum PinnedHeaderLayoutPolicy {
+    static func contextWidth(totalWidth: CGFloat) -> CGFloat {
+        min(176, max(72, totalWidth / 2 - 110))
+    }
+}
+
 private enum TicketKeyRole: Equatable {
     case primary
     case neighbor
@@ -455,6 +483,7 @@ struct OverlayContent: View {
     let lines: [TicketLine]
     let selectedIndex: Int
     let navigationGeneration: Int
+    let navigationDirection: Int
     let sticky: Bool
     let shortcutLabel: String
     let statusText: String?
@@ -463,7 +492,10 @@ struct OverlayContent: View {
     let preferences: PresentationPreferences
     let constrainedSize: CGSize
     let scrollModifier: PopupScrollModifier
+    let onClose: () -> Void
     let onTogglePin: () -> Void
+    let onCycleResult: (Int) -> Void
+    let onCycleProject: (Int) -> Void
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var ticketKeyNamespace
@@ -594,18 +626,65 @@ struct OverlayContent: View {
     }
 
     private var pinnedHeader: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
-            Text("PINNED").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-            if !lines.isEmpty { Text("\(min(selectedIndex + 1, lines.count)) of \(lines.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
-            if let inputText, !inputText.isEmpty {
-                Text(inputText).font(.caption.monospaced().weight(.semibold)).foregroundStyle(.tint)
-                    .padding(.horizontal, 7).padding(.vertical, 3).background(Color.accentColor.opacity(0.12), in: Capsule())
+        ZStack {
+            HStack(spacing: 6) {
+                GhostNavigationButton(systemName: "xmark", label: "Close pinned card", action: onClose)
+                pinnedContext
+                Spacer(minLength: 8)
+                PinnedNavigationButtons(
+                    resultNavigationEnabled: lines.count > 1,
+                    onCycleResult: onCycleResult,
+                    onCycleProject: onCycleProject
+                )
+                PinToggleButton(isPinned: true, action: onTogglePin)
             }
-            if let projectPreview { Text("→ \(projectPreview)").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
-            Spacer()
-            PinToggleButton(isPinned: true, action: onTogglePin)
-        }.contentShape(Rectangle()).padding(.horizontal, 8).frame(height: 24)
+
+            HStack(spacing: 7) {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.tertiary)
+                Text("PINNED")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                if !lines.isEmpty {
+                    Text("\(min(selectedIndex + 1, lines.count)) of \(lines.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+        .contentShape(Rectangle())
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+    }
+
+    private var pinnedContextWidth: CGFloat {
+        PinnedHeaderLayoutPolicy.contextWidth(totalWidth: constrainedSize.width)
+    }
+
+    @ViewBuilder private var pinnedContext: some View {
+        if (inputText?.isEmpty == false) || projectPreview != nil {
+            HStack(spacing: 5) {
+                if let inputText, !inputText.isEmpty {
+                    Text(inputText)
+                        .font(.caption.monospaced().weight(.semibold))
+                        .foregroundStyle(.tint)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
+                if let projectPreview {
+                    Text("→ \(projectPreview)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: pinnedContextWidth, alignment: .leading)
+            .clipped()
+        }
     }
 
     @ViewBuilder private func neighborResults(indices: [Int], title: String) -> some View {
@@ -623,7 +702,7 @@ struct OverlayContent: View {
                             preferences: preferences,
                             keyNamespace: ticketKeyNamespace
                         )
-                            .transition(neighborTransition(title: title))
+                            .transition(neighborTransition)
                         if offset < indices.count - 1 { Divider().padding(.leading, 38) }
                     }
                 }
@@ -631,11 +710,14 @@ struct OverlayContent: View {
         }
     }
 
-    private func neighborTransition(title: String) -> AnyTransition {
+    private var neighborTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
+        let boundaries = SpatialRailTransitionPolicy.boundaries(
+            navigationDirection: navigationDirection
+        )
         return .asymmetric(
-            insertion: .move(edge: title == "NEXT" ? .bottom : .top).combined(with: .opacity),
-            removal: .move(edge: title == "NEXT" ? .top : .bottom).combined(with: .opacity)
+            insertion: .move(edge: boundaries.insertion.edge).combined(with: .opacity),
+            removal: .move(edge: boundaries.removal.edge).combined(with: .opacity)
         )
     }
 
@@ -663,6 +745,65 @@ struct OverlayContent: View {
     }
 }
 
+private struct PinnedNavigationButtons: View {
+    let resultNavigationEnabled: Bool
+    let onCycleResult: (Int) -> Void
+    let onCycleProject: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 1) {
+            GhostNavigationButton(systemName: "chevron.left", label: "Previous project") {
+                onCycleProject(-1)
+            }
+            GhostNavigationButton(systemName: "chevron.right", label: "Next project") {
+                onCycleProject(1)
+            }
+            Divider().frame(height: 13).padding(.horizontal, 3)
+            GhostNavigationButton(
+                systemName: "chevron.up",
+                label: "Previous result",
+                enabled: resultNavigationEnabled
+            ) {
+                onCycleResult(-1)
+            }
+            GhostNavigationButton(
+                systemName: "chevron.down",
+                label: "Next result",
+                enabled: resultNavigationEnabled
+            ) {
+                onCycleResult(1)
+            }
+        }
+        .fixedSize()
+        .padding(2)
+        .background(Color.primary.opacity(0.035), in: Capsule())
+    }
+}
+
+private struct GhostNavigationButton: View {
+    let systemName: String
+    let label: String
+    var enabled = true
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 9.5, weight: .bold))
+                .foregroundStyle(enabled ? (hovering ? Color.accentColor : Color.secondary) : Color.secondary.opacity(0.32))
+                .frame(width: 21, height: 19)
+                .background(Color.accentColor.opacity(enabled && hovering ? 0.12 : 0.001), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(label)
+        .accessibilityLabel(label)
+        .onHover { hovering = $0 }
+    }
+}
+
 struct AppearanceCardPreview: View {
     let preferences: PresentationPreferences
     private let sampleLines = [
@@ -683,7 +824,7 @@ struct AppearanceCardPreview: View {
                 availableWidth: max(1, proxy.size.width - 4),
                 contentHeight: height
             )
-            OverlayContent(lines: sampleLines, selectedIndex: 0, navigationGeneration: 0, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height), scrollModifier: .option, onTogglePin: {})
+            OverlayContent(lines: sampleLines, selectedIndex: 0, navigationGeneration: 0, navigationDirection: 1, sticky: true, shortcutLabel: "⌥⇧Space", statusText: nil, inputText: nil, projectPreview: nil, preferences: preferences, constrainedSize: CGSize(width: actualWidth, height: height), scrollModifier: .option, onClose: {}, onTogglePin: {}, onCycleResult: { _ in }, onCycleProject: { _ in })
                 .scaleEffect(scale, anchor: .topLeading)
                 .frame(width: actualWidth * scale, height: height * scale, alignment: .topLeading)
                 .accessibilityLabel("Live ticket card preview")
@@ -698,6 +839,7 @@ struct AppearanceCardPreview: View {
     @Published var lines: [TicketLine] = []
     @Published var selectedIndex = 0
     @Published var navigationGeneration = 0
+    @Published var navigationDirection = 1
     @Published var sticky = false
     @Published var shortcutLabel = "⌥⇧Space"
     @Published var statusText: String?
@@ -709,7 +851,10 @@ struct AppearanceCardPreview: View {
 
 private struct OverlayRootView: View {
     @ObservedObject var state: OverlayViewState
+    let onClose: () -> Void
     let onTogglePin: () -> Void
+    let onCycleResult: (Int) -> Void
+    let onCycleProject: (Int) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -717,6 +862,7 @@ private struct OverlayRootView: View {
                 lines: state.lines,
                 selectedIndex: state.selectedIndex,
                 navigationGeneration: state.navigationGeneration,
+                navigationDirection: state.navigationDirection,
                 sticky: state.sticky,
                 shortcutLabel: state.shortcutLabel,
                 statusText: state.statusText,
@@ -725,7 +871,10 @@ private struct OverlayRootView: View {
                 preferences: state.preferences,
                 constrainedSize: proxy.size,
                 scrollModifier: state.scrollModifier,
-                onTogglePin: onTogglePin
+                onClose: onClose,
+                onTogglePin: onTogglePin,
+                onCycleResult: onCycleResult,
+                onCycleProject: onCycleProject
             )
         }
     }
@@ -733,6 +882,7 @@ private struct OverlayRootView: View {
 
 @MainActor final class OverlayController: NSObject, NSWindowDelegate {
     var onCycleProject: ((Int) -> Void)?
+    var onClose: (() -> Void)?
     var onInput: ((PinnedInputEvent) -> Void)?
     var onSelectionChange: ((TicketLine) -> Void)?
     var onTogglePin: (() -> Void)?
@@ -744,6 +894,9 @@ private struct OverlayRootView: View {
     private var displayedLines: [TicketLine] = []
     private var selectedIndex = 0
     private var navigationGeneration = 0
+    private var navigationDirection = 1
+    private var queuedResultDirections: [Int] = []
+    private var resultNavigationScheduled = false
     private var anchorMouse = CGPoint.zero
     private var shortcutLabel = "⌥⇧Space"
     private var statusText: String?
@@ -811,7 +964,13 @@ private struct OverlayRootView: View {
         panel.isMovableByWindowBackground = true
         panel.contentMinSize = OverlaySizePolicy.minimum
         panel.contentMaxSize = OverlaySizePolicy.fallbackMaximum
-        panel.contentView = NSHostingView(rootView: OverlayRootView(state: viewState) { [weak self] in self?.onTogglePin?() })
+        panel.contentView = NSHostingView(rootView: OverlayRootView(
+            state: viewState,
+            onClose: { [weak self] in self?.onClose?() },
+            onTogglePin: { [weak self] in self?.onTogglePin?() },
+            onCycleResult: { [weak self] direction in self?.cycleResult(direction) },
+            onCycleProject: { [weak self] direction in self?.cycleProject(direction) }
+        ))
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
@@ -853,12 +1012,14 @@ private struct OverlayRootView: View {
     func show(_ lines: [TicketLine], near mouse: CGPoint, shortcutLabel: String = "⌥⇧Space") {
         guard !lines.isEmpty else { hide(); return }
         if isSticky { replacePinnedResults(lines); return }
+        cancelQueuedResultNavigation()
         displayedLines = Array(lines.prefix(HoverResultPolicy.maximumResults)); selectedIndex = 0
         anchorMouse = mouse; self.shortcutLabel = shortcutLabel; statusText = nil
         renderTemporary(); panel.orderFrontRegardless()
     }
 
     func openPinned(shortcutLabel: String, status: String = "Reading near pointer…") {
+        cancelQueuedResultNavigation()
         isSticky = true; displayedLines = []; selectedIndex = 0; statusText = status
         anchorMouse = NSEvent.mouseLocation
         inputText = nil; projectPreview = nil; self.shortcutLabel = shortcutLabel
@@ -890,6 +1051,7 @@ private struct OverlayRootView: View {
 
     func restorePinnedIfNeeded(shortcutLabel: String) {
         guard interactionPreferences.restorePinned, !panel.isVisible else { return }
+        cancelQueuedResultNavigation()
         isSticky = true; displayedLines = []; selectedIndex = 0
         statusText = "Ready for a ticket number"
         anchorMouse = NSEvent.mouseLocation
@@ -902,6 +1064,7 @@ private struct OverlayRootView: View {
 
     func replacePinnedResults(_ lines: [TicketLine], selecting key: String? = nil, status: String? = nil) {
         guard isSticky else { return }
+        cancelQueuedResultNavigation()
         displayedLines = Array(lines.prefix(HoverResultPolicy.maximumResults))
         if let key, let index = displayedLines.firstIndex(where: { $0.key == key }) { selectedIndex = index }
         else { selectedIndex = min(selectedIndex, max(0, displayedLines.count - 1)) }
@@ -920,6 +1083,7 @@ private struct OverlayRootView: View {
 
     func showPinnedStatus(_ status: String) {
         guard isSticky else { return }
+        cancelQueuedResultNavigation()
         displayedLines = []; selectedIndex = 0; statusText = status; renderPinned(useSavedPosition: false)
     }
 
@@ -929,6 +1093,7 @@ private struct OverlayRootView: View {
         hide()
     }
     func hide() {
+        cancelQueuedResultNavigation()
         panel.orderOut(nil); isSticky = false; inputText = nil; projectPreview = nil
         syncViewState()
     }
@@ -997,16 +1162,52 @@ private struct OverlayRootView: View {
         guard abs(delta) > 0.1, Date().timeIntervalSince(lastScrollAt) > 0.10 else { return }
         lastScrollAt = Date()
         let direction = delta > 0 ? -1 : 1
-        if shiftingProject { onCycleProject?(direction) }
+        if shiftingProject { cycleProject(direction) }
         else { cycleResult(direction) }
     }
 
     private func cycleResult(_ direction: Int) {
         guard displayedLines.count > 1 else { return }
+        queuedResultDirections.append(direction >= 0 ? 1 : -1)
+        scheduleNextResultNavigation()
+    }
+
+    private func scheduleNextResultNavigation() {
+        guard !resultNavigationScheduled, let direction = queuedResultDirections.first else { return }
+        resultNavigationScheduled = true
+        navigationDirection = direction
+        viewState.navigationDirection = direction
+        DispatchQueue.main.asyncAfter(deadline: .now() + SpatialRailTransitionPolicy.directionLeadTime) { [weak self] in
+            self?.applyScheduledResultNavigation()
+        }
+    }
+
+    private func applyScheduledResultNavigation() {
+        guard resultNavigationScheduled, !queuedResultDirections.isEmpty else { return }
+        let direction = queuedResultDirections.removeFirst()
+        resultNavigationScheduled = false
+        guard displayedLines.count > 1 else {
+            queuedResultDirections.removeAll()
+            return
+        }
         navigationGeneration = TicketTitleSettlePolicy.nextGeneration(after: navigationGeneration)
         selectedIndex = CircularNavigation.advancedIndex(current: selectedIndex, direction: direction, count: displayedLines.count)
         inputText = nil; projectPreview = nil; syncViewState()
         if let selectedLine { onSelectionChange?(selectedLine) }
+        scheduleNextResultNavigation()
+    }
+
+    private func cancelQueuedResultNavigation() {
+        queuedResultDirections.removeAll()
+        resultNavigationScheduled = false
+    }
+
+    private func cycleProject(_ direction: Int) {
+        cancelQueuedResultNavigation()
+        let normalizedDirection = direction >= 0 ? 1 : -1
+        navigationDirection = normalizedDirection
+        viewState.navigationDirection = normalizedDirection
+        onCycleProject?(normalizedDirection)
     }
 
     private func renderTemporary() {
@@ -1040,6 +1241,7 @@ private struct OverlayRootView: View {
         viewState.lines = displayedLines
         viewState.selectedIndex = selectedIndex
         viewState.navigationGeneration = navigationGeneration
+        viewState.navigationDirection = navigationDirection
         viewState.sticky = isSticky
         viewState.shortcutLabel = shortcutLabel
         viewState.statusText = statusText
