@@ -120,10 +120,55 @@ enum CardTextSize: String, CaseIterable, Identifiable, Codable {
 }
 
 enum CardWidth: String, CaseIterable, Identifiable, Codable {
-    case compact, standard, wide
+    case compact, standard, wide, custom
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
-    var points: CGFloat { switch self { case .compact: return 480; case .standard: return 590; case .wide: return 700 } }
+    var points: CGFloat {
+        switch self {
+        case .compact: return 480
+        case .standard, .custom: return 590
+        case .wide: return 700
+        }
+    }
+}
+
+enum PopupScrollModifier: String, CaseIterable, Identifiable, Codable {
+    case option, control, shift, command
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var symbol: String {
+        switch self { case .option: return "⌥"; case .control: return "⌃"; case .shift: return "⇧"; case .command: return "⌘" }
+    }
+    var eventFlag: NSEvent.ModifierFlags {
+        switch self { case .option: return .option; case .control: return .control; case .shift: return .shift; case .command: return .command }
+    }
+
+    func matches(_ flags: NSEvent.ModifierFlags) -> Bool {
+        flags.intersection([.option, .control, .shift, .command]) == eventFlag
+    }
+}
+
+struct PopupInteractionPreferences: Equatable {
+    static let defaults = PopupInteractionPreferences(scrollModifier: .option, restorePinned: false)
+
+    var scrollModifier: PopupScrollModifier
+    var restorePinned: Bool
+
+    static func load(defaults: UserDefaults = .standard) -> PopupInteractionPreferences {
+        let prefix = "popup."
+        return PopupInteractionPreferences(
+            scrollModifier: PopupScrollModifier(rawValue: defaults.string(forKey: prefix + "scrollModifier") ?? "option") ?? .option,
+            restorePinned: defaults.bool(forKey: prefix + "restorePinned")
+        )
+    }
+
+    func persist(defaults: UserDefaults = .standard) {
+        let prefix = "popup."
+        defaults.set(scrollModifier.rawValue, forKey: prefix + "scrollModifier")
+        defaults.set(restorePinned, forKey: prefix + "restorePinned")
+        NotificationCenter.default.post(name: .nuncidPopupInteractionPreferencesDidChange, object: nil)
+    }
 }
 
 enum CardDensity: String, CaseIterable, Identifiable, Codable {
@@ -150,26 +195,50 @@ struct PresentationPreferences: Equatable {
     var width: CardWidth
     var density: CardDensity
     var surface: CardSurface
+    var customWidth: CGFloat
+    var customHeight: CGFloat
+
+    init(
+        alternativePreviews: Int,
+        textSize: CardTextSize,
+        width: CardWidth,
+        density: CardDensity,
+        surface: CardSurface,
+        customWidth: CGFloat = CardWidth.standard.points,
+        customHeight: CGFloat = 440
+    ) {
+        self.alternativePreviews = alternativePreviews
+        self.textSize = textSize
+        self.width = width
+        self.density = density
+        self.surface = surface
+        self.customWidth = customWidth
+        self.customHeight = customHeight
+    }
 
     static func load(defaults: UserDefaults = .standard) -> PresentationPreferences {
         let prefix = "presentation."
         let previews = defaults.object(forKey: prefix + "alternativePreviews") == nil ? 2 : defaults.integer(forKey: prefix + "alternativePreviews")
         return PresentationPreferences(
-            alternativePreviews: min(max(previews, 0), 5),
+            alternativePreviews: min(max(previews, 0), 6),
             textSize: CardTextSize(rawValue: defaults.string(forKey: prefix + "textSize") ?? "standard") ?? .standard,
             width: CardWidth(rawValue: defaults.string(forKey: prefix + "width") ?? "standard") ?? .standard,
             density: CardDensity(rawValue: defaults.string(forKey: prefix + "density") ?? "comfortable") ?? .comfortable,
-            surface: CardSurface(rawValue: defaults.string(forKey: prefix + "surface") ?? "system") ?? .system
+            surface: CardSurface(rawValue: defaults.string(forKey: prefix + "surface") ?? "system") ?? .system,
+            customWidth: defaults.object(forKey: prefix + "customWidth") == nil ? CardWidth.standard.points : defaults.double(forKey: prefix + "customWidth"),
+            customHeight: defaults.object(forKey: prefix + "customHeight") == nil ? 440 : defaults.double(forKey: prefix + "customHeight")
         )
     }
 
     func persist(defaults: UserDefaults = .standard) {
         let prefix = "presentation."
-        defaults.set(min(max(alternativePreviews, 0), 5), forKey: prefix + "alternativePreviews")
+        defaults.set(min(max(alternativePreviews, 0), 6), forKey: prefix + "alternativePreviews")
         defaults.set(textSize.rawValue, forKey: prefix + "textSize")
         defaults.set(width.rawValue, forKey: prefix + "width")
         defaults.set(density.rawValue, forKey: prefix + "density")
         defaults.set(surface.rawValue, forKey: prefix + "surface")
+        defaults.set(customWidth, forKey: prefix + "customWidth")
+        defaults.set(customHeight, forKey: prefix + "customHeight")
         NotificationCenter.default.post(name: .nuncidPresentationPreferencesDidChange, object: nil)
     }
 
@@ -209,4 +278,5 @@ struct PreferenceFeedback: Equatable {
 
 extension Notification.Name {
     static let nuncidPresentationPreferencesDidChange = Notification.Name("nuncid.presentationPreferencesDidChange")
+    static let nuncidPopupInteractionPreferencesDidChange = Notification.Name("nuncid.popupInteractionPreferencesDidChange")
 }

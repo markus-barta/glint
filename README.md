@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/hero-0.4.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
+  <img src="docs/screenshots/hero-0.5.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.4.0-0A84FF?style=flat-square" alt="Latest release 0.4.0"></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.5.0-0A84FF?style=flat-square" alt="Latest release 0.5.0"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -29,12 +29,12 @@
 Nuncid watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
 
 <p align="center">
-  <img src="docs/screenshots/workflow-0.4.0.png" alt="Nuncid scans a ticket reference at the pointer and opens a rich card with ranked alternatives" width="100%">
+  <img src="docs/screenshots/workflow-0.5.0.png" alt="Nuncid keeps the current ticket fixed between previous and next results" width="100%">
 </p>
 
 | Invoke anywhere | Keep context nearby | Navigate without friction |
 | --- | --- | --- |
-| The **activation shortcut** can stay off, toggle hover scanning, or scan once when pressed. Toggled hover scans each newly settled pointer location once—never in a timer loop. | **Pin** turns the result into a movable card with a remembered screen position. Use the handle to place it where it belongs. | Scroll through results, Shift-scroll through projects, type a number to jump tickets, or fuzzy-type a project—even with a typo. |
+| The **activation shortcut** can stay off, toggle hover scanning, or scan once when pressed. Toggled hover scans each newly settled pointer location once—never in a timer loop. | Move into a temporary card without racing it, pin or unpin directly, and resize from any edge. Nuncid remembers the card’s size, position, and pin state. | Previous and next tickets move around a fixed primary card. Scroll inside it normally, or hold your chosen modifier to navigate while working in another app. |
 
 The small scan cue shows where Nuncid is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
 
@@ -47,17 +47,17 @@ Activation and presentation are independent on purpose. Record any safe global s
 | <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed Nuncid menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
 
 <p align="center">
-  <img src="docs/screenshots/settings-showcase-0.4.0.png" alt="Nuncid activation and card appearance settings" width="100%">
+  <img src="docs/screenshots/settings-showcase-0.5.0.png" alt="Nuncid activation and spatial card appearance settings" width="100%">
 </p>
 
-Nuncid can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
+Nuncid can show zero to six neighboring destinations and offers four text sizes, three presets plus a remembered Custom size, three content densities, and system or solid surfaces. Cards adapt their content to the available space instead of forcing every ticket into the same dimensions.
 
 ## What changed—and why it feels better
 
 The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
 
 <p align="center">
-  <img src="docs/screenshots/version-history-0.4.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
+  <img src="docs/screenshots/version-history-0.5.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
 </p>
 
 ## Smarter resolution, fewer wrong guesses
@@ -85,7 +85,7 @@ Those tools may contact their configured services using your existing credential
 
 ## Install
 
-1. Download [`Nuncid-0.4.0.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.4.0/Nuncid-0.4.0.zip).
+1. Download [`Nuncid-0.5.0.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.5.0/Nuncid-0.5.0.zip).
 2. Move `Nuncid.app` to `~/Applications` or `/Applications`.
 3. Open Nuncid and grant Screen Recording when macOS asks.
 4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
@@ -97,7 +97,7 @@ Default commands:
 | Activation | `⌥Space` | Follow the selected behavior; Press to Scan is the default. |
 | Pin / direct open | `⇧⌥Space` | Open pinned, pin the temporary card, focus it, or close it. |
 
-Both shortcuts are fully configurable. Native recorder controls reject unsafe plain-letter globals and report conflicts directly in Settings.
+Both shortcuts are fully configurable. F1 through F20 work without modifiers; regular keys require a safe global modifier. The native recorder reports unsafe choices and conflicts directly in Settings.
 
 ## Pinned navigation
 
@@ -105,13 +105,14 @@ Both shortcuts are fully configurable. Native recorder controls reject unsafe pl
 | --- | --- |
 | Mouse wheel | Select another resolved ticket. |
 | `⇧` + mouse wheel | Keep the number and try another project. |
+| Chosen modifier + wheel, anywhere | Select another result while any app remains active. |
 | Type digits | Jump to a ticket number while keeping the project. |
 | Type letters | Fuzzy-match a project; the best guess previews immediately. |
 | Paste `PHAROS-203`, `#203`, or `203` | Resolve a full key, pull request, or number directly. |
 | Return | Apply the previewed input. |
 | Escape | Clear the current input, then close. |
 
-Typing is captured only while the pinned card is focused. Ordinary scrolling elsewhere on the Mac is never intercepted.
+Typing is captured only while the pinned card is focused. Global wheel navigation is passive: Nuncid responds to the configured modifier without consuming the active app’s scroll event.
 
 ## Build from source
 

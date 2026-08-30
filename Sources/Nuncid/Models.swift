@@ -1,3 +1,4 @@
+import Carbon
 import Foundation
 
 enum Tracker: String, Codable, CaseIterable, Sendable {
@@ -34,9 +35,38 @@ struct HotKey: Codable, Hashable {
 
     var label: String { modifiers.label + keyLabel }
 
+    private static let functionKeyLabels: [UInt32: String] = [
+        UInt32(kVK_F1): "F1", UInt32(kVK_F2): "F2", UInt32(kVK_F3): "F3", UInt32(kVK_F4): "F4",
+        UInt32(kVK_F5): "F5", UInt32(kVK_F6): "F6", UInt32(kVK_F7): "F7", UInt32(kVK_F8): "F8",
+        UInt32(kVK_F9): "F9", UInt32(kVK_F10): "F10", UInt32(kVK_F11): "F11", UInt32(kVK_F12): "F12",
+        UInt32(kVK_F13): "F13", UInt32(kVK_F14): "F14", UInt32(kVK_F15): "F15", UInt32(kVK_F16): "F16",
+        UInt32(kVK_F17): "F17", UInt32(kVK_F18): "F18", UInt32(kVK_F19): "F19", UInt32(kVK_F20): "F20"
+    ]
+
+    static func functionKeyLabel(for keyCode: UInt32) -> String? {
+        functionKeyLabels[keyCode]
+    }
+
     var isSafeGlobalShortcut: Bool {
-        let functionKeys: Set<UInt32> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
-        return functionKeys.contains(keyCode) || !modifiers.intersection([.command, .option, .control]).isEmpty
+        return Self.functionKeyLabel(for: keyCode) != nil || !modifiers.intersection([.command, .option, .control]).isEmpty
+    }
+}
+
+enum ShortcutCaptureDecision: Equatable {
+    case cancel
+    case clear
+    case rejectUnsafe
+    case rejectDuplicate
+    case accept(HotKey)
+}
+
+enum ShortcutCapturePolicy {
+    static func decision(for candidate: HotKey, forbiddenHotKey: HotKey?) -> ShortcutCaptureDecision {
+        if candidate.keyCode == UInt32(kVK_Escape) { return .cancel }
+        if candidate.keyCode == UInt32(kVK_Delete) || candidate.keyCode == UInt32(kVK_ForwardDelete) { return .clear }
+        guard candidate.isSafeGlobalShortcut else { return .rejectUnsafe }
+        guard candidate != forbiddenHotKey else { return .rejectDuplicate }
+        return .accept(candidate)
     }
 }
 
@@ -79,8 +109,9 @@ struct TicketLine: Codable, Hashable, Identifiable, Sendable {
     let source: String
     let metadata: String
     let detail: String
+    let destination: String?
 
-    init(key: String, state: String, title: String, source: String, metadata: String = "", detail: String = "") {
+    init(key: String, state: String, title: String, source: String, metadata: String = "", detail: String = "", destination: String? = nil) {
         self.id = "\(source):\(key)"
         self.key = key
         self.state = state
@@ -88,6 +119,20 @@ struct TicketLine: Codable, Hashable, Identifiable, Sendable {
         self.source = source
         self.metadata = metadata
         self.detail = detail
+        self.destination = destination
+    }
+
+    var destinationURL: URL? {
+        if let destination, let url = URL(string: destination) { return url }
+        switch source.lowercased() {
+        case "ppm": return URL(string: "https://pm.barta.cm/issues/\(key)")
+        case "pma": return URL(string: "https://paimos.agm.ng/issues/\(key)")
+        case "gh":
+            let repo = metadata.split(separator: "·", maxSplits: 1).first?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let repo, !repo.isEmpty, key.hasPrefix("#") else { return nil }
+            return URL(string: "https://github.com/\(repo)/pull/\(key.dropFirst())")
+        default: return nil
+        }
     }
 }
 

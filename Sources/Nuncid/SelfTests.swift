@@ -100,6 +100,7 @@ enum SelfTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("always", forKey: "triggerMode")
         let customInspect = HotKey(keyCode: 2, modifiers: [.command, .control], keyLabel: "D")
+        let f19 = HotKey(keyCode: 80, modifiers: [], keyLabel: "F19")
         NuncidPreferences.save(customInspect, key: "inspectHotKey", defaults: defaults)
         NuncidPreferences.save(nil, key: "pinHotKey", defaults: defaults)
         guard NuncidPreferences.load(defaults: defaults) == NuncidPreferences(
@@ -109,11 +110,32 @@ enum SelfTests {
             fputs("self-test failed: persisted preferences\n", stderr)
             exit(1)
         }
+        NuncidPreferences.save(f19, key: "pinHotKey", defaults: defaults)
+        guard NuncidPreferences.load(defaults: defaults).pinHotKey == f19 else {
+            fputs("self-test failed: persisted F19 shortcut\n", stderr)
+            exit(1)
+        }
+        let unsafePlainKey = HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A")
+        let escape = HotKey(keyCode: 53, modifiers: [], keyLabel: "Esc")
+        let backwardDelete = HotKey(keyCode: 51, modifiers: [], keyLabel: "Delete")
+        let forwardDelete = HotKey(keyCode: 117, modifiers: [], keyLabel: "Forward Delete")
         guard HotKey.inspect.label == "⌥Space", HotKey.pin.label == "⌥⇧Space",
               HotKey.inspect.isSafeGlobalShortcut,
               HotKey(keyCode: 120, modifiers: [], keyLabel: "F2").isSafeGlobalShortcut,
+              HotKey(keyCode: 122, modifiers: [], keyLabel: "F1").isSafeGlobalShortcut,
+              HotKey(keyCode: 111, modifiers: [], keyLabel: "F12").isSafeGlobalShortcut,
+              HotKey(keyCode: 105, modifiers: [], keyLabel: "F13").isSafeGlobalShortcut,
+              f19.isSafeGlobalShortcut,
+              HotKey(keyCode: 90, modifiers: [], keyLabel: "F20").isSafeGlobalShortcut,
+              HotKey.functionKeyLabel(for: f19.keyCode) == "F19",
               !HotKey(keyCode: 123, modifiers: [], keyLabel: "←").isSafeGlobalShortcut,
-              !HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A").isSafeGlobalShortcut,
+              !unsafePlainKey.isSafeGlobalShortcut,
+              ShortcutCapturePolicy.decision(for: f19, forbiddenHotKey: nil) == .accept(f19),
+              ShortcutCapturePolicy.decision(for: unsafePlainKey, forbiddenHotKey: nil) == .rejectUnsafe,
+              ShortcutCapturePolicy.decision(for: escape, forbiddenHotKey: nil) == .cancel,
+              ShortcutCapturePolicy.decision(for: backwardDelete, forbiddenHotKey: nil) == .clear,
+              ShortcutCapturePolicy.decision(for: forwardDelete, forbiddenHotKey: nil) == .clear,
+              ShortcutCapturePolicy.decision(for: f19, forbiddenHotKey: f19) == .rejectDuplicate,
               NuncidPreferences.shortcutsConflict(inspect: .inspect, pin: .inspect),
               !NuncidPreferences.shortcutsConflict(inspect: .inspect, pin: .pin),
               !NuncidPreferences.shortcutsConflict(inspect: nil, pin: .pin) else {
@@ -346,6 +368,36 @@ enum SelfTests {
               ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 0, elapsed: 8) else {
             fputs("self-test failed: manual inspection lifetime policy\n", stderr); exit(1)
         }
+        let hideNow = Date(timeIntervalSinceReferenceDate: 100)
+        guard TemporaryOverlayLifetimePolicy.shouldScheduleHide(
+            isVisible: true,
+            isPinned: false,
+            pointerInside: false,
+            movedFromLastPosition: true,
+            manualLifetimeExpired: false
+        ), !TemporaryOverlayLifetimePolicy.shouldScheduleHide(
+            isVisible: true,
+            isPinned: false,
+            pointerInside: true,
+            movedFromLastPosition: true,
+            manualLifetimeExpired: true
+        ), !TemporaryOverlayLifetimePolicy.shouldScheduleHide(
+            isVisible: true,
+            isPinned: true,
+            pointerInside: false,
+            movedFromLastPosition: true,
+            manualLifetimeExpired: true
+        ), TemporaryOverlayLifetimePolicy.shouldHide(
+            deadline: hideNow,
+            now: hideNow.addingTimeInterval(TemporaryOverlayLifetimePolicy.exitGrace),
+            pointerInside: false
+        ), !TemporaryOverlayLifetimePolicy.shouldHide(
+            deadline: hideNow,
+            now: hideNow.addingTimeInterval(TemporaryOverlayLifetimePolicy.exitGrace),
+            pointerInside: true
+        ) else {
+            fputs("self-test failed: pointer-safe temporary popup lifetime\n", stderr); exit(1)
+        }
         guard ResolutionLookupPolicy.initialCount(total: 16) == 4,
               ResolutionLookupPolicy.initialCount(total: 2) == 2,
               ResolutionLookupPolicy.shouldLaunchNext(launched: 4, total: 16, resolvedCount: 2, maximumResults: 12),
@@ -376,6 +428,45 @@ enum SelfTests {
             fputs("self-test failed: ticket appearance persistence/navigation\n", stderr)
             exit(1)
         }
+        var customPresentation = presentation
+        customPresentation.width = .custom
+        customPresentation.customWidth = 777
+        customPresentation.customHeight = 333
+        customPresentation.persist(defaults: defaults)
+        let neighborRail = NeighborRailPolicy.indices(count: 7, selectedIndex: 3, visibleCount: 6)
+        let customOverlay = OverlayMetrics.size(
+            lines: [],
+            sticky: true,
+            preferences: customPresentation,
+            visibleFrame: CGRect(x: 0, y: 0, width: 720, height: 300)
+        )
+        let popupPreferences = PopupInteractionPreferences(scrollModifier: .command, restorePinned: true)
+        popupPreferences.persist(defaults: defaults)
+        guard PresentationPreferences.load(defaults: defaults) == customPresentation,
+              customOverlay == CGSize(width: 704, height: 284),
+              neighborRail.previous == [0, 1, 2],
+              neighborRail.next == [4, 5, 6],
+              PopupInteractionPreferences.load(defaults: defaults) == popupPreferences,
+              PopupScrollModifier.option.matches([.option, .capsLock]),
+              !PopupScrollModifier.option.matches([.option, .shift]) else {
+            fputs("self-test failed: custom popup geometry, rail, and interaction preferences\n", stderr); exit(1)
+        }
+        let ppmDestination = TicketLine(key: "NUNCID-35", state: "done", title: "Link", source: "ppm").destinationURL
+        let githubDestination = TicketLine(key: "#184", state: "open", title: "Link", source: "gh", metadata: "markus-barta/nuncid · pull request").destinationURL
+        guard ppmDestination?.absoluteString == "https://pm.barta.cm/issues/NUNCID-35",
+              githubDestination?.absoluteString == "https://github.com/markus-barta/nuncid/pull/184" else {
+            fputs("self-test failed: source destination links\n", stderr); exit(1)
+        }
+        let naturalSingle = OverlayMetrics.size(
+            lines: [TicketLine(key: "NUNCID-1", state: "open", title: "Short result", source: "ppm")],
+            sticky: false,
+            preferences: .defaults,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        )
+        guard naturalSingle.height < OverlaySizePolicy.minimum.height,
+              OverlayMetrics.temporaryBodyHeight(totalHeight: naturalSingle.height) == naturalSingle.height - OverlayMetrics.outerPadding * 2 else {
+            fputs("self-test failed: naturally measured popup height and temporary body budget\n", stderr); exit(1)
+        }
         guard AppearanceResetPolicy.shouldKeepUndo(previous: presentation, current: .defaults),
               !AppearanceResetPolicy.shouldKeepUndo(previous: presentation, current: presentation),
               !AppearanceResetPolicy.shouldKeepUndo(previous: nil, current: .defaults) else {
@@ -383,6 +474,28 @@ enum SelfTests {
         }
         let previewLines = (1...6).map {
             TicketLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")
+        }
+        var shortTemporaryPreferences = customPresentation
+        shortTemporaryPreferences.alternativePreviews = 6
+        shortTemporaryPreferences.customWidth = 420
+        shortTemporaryPreferences.customHeight = 260
+        let shortTemporarySize = OverlayMetrics.size(
+            lines: previewLines,
+            sticky: false,
+            preferences: shortTemporaryPreferences,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_200, height: 800)
+        )
+        let shortTemporaryNeighbors = OverlayMetrics.visibleAlternativeCount(
+            lines: previewLines,
+            selectedIndex: 0,
+            preferences: shortTemporaryPreferences,
+            width: shortTemporarySize.width,
+            totalHeight: shortTemporarySize.height,
+            sticky: false
+        )
+        guard shortTemporarySize == CGSize(width: 420, height: 260),
+              shortTemporaryNeighbors < shortTemporaryPreferences.alternativePreviews else {
+            fputs("self-test failed: short temporary card adaptive neighbor budget\n", stderr); exit(1)
         }
         let previewHeight = OverlayMetrics.preferredHeight(lines: previewLines, sticky: true, preferences: presentation)
         let previewScale = OverlayMetrics.previewScale(
@@ -434,7 +547,8 @@ enum SelfTests {
             selectedIndex: 0,
             preferences: presentation,
             width: shortOverlay.width,
-            totalHeight: shortOverlay.height
+            totalHeight: shortOverlay.height,
+            sticky: true
         )
         let shortPrimaryHeight = OverlayMetrics.primaryHeight(
             line: shortStressLines[0],
