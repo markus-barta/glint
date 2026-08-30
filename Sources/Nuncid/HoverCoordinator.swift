@@ -737,14 +737,14 @@ enum PinnedScanOwnershipPolicy {
         })
     }
 
-    private static func presentationLines(from resolved: [ResolvedCandidate]) -> [GlintLine] {
+    private static func presentationLines(from resolved: [ResolvedCandidate]) -> [TicketLine] {
         HoverResultPolicy.visible(from: resolved.map { result in
             let provenance = result.proposal.provenanceSummary
             let metadata = [result.line.metadata, provenance.isEmpty ? nil : "Matched: \(provenance)"]
                 .compactMap { $0 }
                 .filter { !$0.isEmpty }
                 .joined(separator: " · ")
-            return GlintLine(
+            return TicketLine(
                 key: result.line.key,
                 state: result.line.state,
                 title: result.line.title,

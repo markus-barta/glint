@@ -30,6 +30,7 @@ enum SelfTests {
 
         let context = ResolutionContext(lastSeenTracker: .pma, ppmProject: "PHAROS", pmaProject: "START")
         guard CandidatePlanner.tracker(for: "HAUSV", context: context) == .ppm,
+              CandidatePlanner.tracker(for: "NUNCID", context: context) == .ppm,
               CandidatePlanner.tracker(for: "START", context: context) == .pma else {
             fputs("self-test failed: tracker routing\n", stderr)
             exit(1)
@@ -57,7 +58,7 @@ enum SelfTests {
                 return "\(version)|\(suffix.dropFirst(2))"
             }
         let noteVersionDates = ReleaseHistory.notes.map { "\($0.version)|\($0.isoDate)" }
-        guard ReleaseHistory.isValid(currentVersion: GlintBrand.version),
+        guard ReleaseHistory.isValid(currentVersion: NuncidBrand.version),
               changelogVersionDates == noteVersionDates,
               ReleaseHistory.notes.allSatisfy({ note in
                   note.items.allSatisfy { !$0.label.isEmpty && !$0.detail.isEmpty }
@@ -74,22 +75,24 @@ enum SelfTests {
             fputs("self-test failed: collision ordering\n", stderr)
             exit(1)
         }
-        guard CandidatePlanner.repo(for: "PAI") == "inspr-at/paimos",
+        guard CandidatePlanner.repo(for: "NUNCID") == "markus-barta/nuncid",
+              CandidatePlanner.repo(for: "GLINT") == "markus-barta/nuncid",
+              CandidatePlanner.repo(for: "PAI") == "inspr-at/paimos",
               CandidatePlanner.repo(for: "UNKNOWN") == nil else {
             fputs("self-test failed: canonical repo routing\n", stderr)
             exit(1)
         }
-        let first = GlintLine(key: "GLINT-7", state: "in-progress", title: "First", source: "ppm")
-        let second = GlintLine(key: "#7", state: "open", title: "Second", source: "gh")
+        let first = TicketLine(key: "GLINT-7", state: "in-progress", title: "First", source: "ppm")
+        let second = TicketLine(key: "#7", state: "open", title: "Second", source: "gh")
         guard HoverResultPolicy.visible(from: [nil, nil]).isEmpty,
               HoverResultPolicy.visible(from: [nil, first, nil, second, first]) == [first, second],
               HoverResultPolicy.visible(from: (1...20).map {
-                  GlintLine(key: "PAI-\($0)", state: "open", title: "Result \($0)", source: "ppm")
+                  TicketLine(key: "PAI-\($0)", state: "open", title: "Result \($0)", source: "ppm")
               }).count == HoverResultPolicy.maximumResults else {
             fputs("self-test failed: visible result policy\n", stderr)
             exit(1)
         }
-        let suite = "GlintSelfTests.\(UUID().uuidString)"
+        let suite = "NuncidSelfTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else {
             fputs("self-test failed: isolated preferences\n", stderr)
             exit(1)
@@ -97,9 +100,9 @@ enum SelfTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("always", forKey: "triggerMode")
         let customInspect = HotKey(keyCode: 2, modifiers: [.command, .control], keyLabel: "D")
-        GlintPreferences.save(customInspect, key: "inspectHotKey", defaults: defaults)
-        GlintPreferences.save(nil, key: "pinHotKey", defaults: defaults)
-        guard GlintPreferences.load(defaults: defaults) == GlintPreferences(
+        NuncidPreferences.save(customInspect, key: "inspectHotKey", defaults: defaults)
+        NuncidPreferences.save(nil, key: "pinHotKey", defaults: defaults)
+        guard NuncidPreferences.load(defaults: defaults) == NuncidPreferences(
             inspectHotKey: customInspect,
             pinHotKey: nil
         ) else {
@@ -111,9 +114,9 @@ enum SelfTests {
               HotKey(keyCode: 120, modifiers: [], keyLabel: "F2").isSafeGlobalShortcut,
               !HotKey(keyCode: 123, modifiers: [], keyLabel: "←").isSafeGlobalShortcut,
               !HotKey(keyCode: 0, modifiers: [.shift], keyLabel: "A").isSafeGlobalShortcut,
-              GlintPreferences.shortcutsConflict(inspect: .inspect, pin: .inspect),
-              !GlintPreferences.shortcutsConflict(inspect: .inspect, pin: .pin),
-              !GlintPreferences.shortcutsConflict(inspect: nil, pin: .pin) else {
+              NuncidPreferences.shortcutsConflict(inspect: .inspect, pin: .inspect),
+              !NuncidPreferences.shortcutsConflict(inspect: .inspect, pin: .pin),
+              !NuncidPreferences.shortcutsConflict(inspect: nil, pin: .pin) else {
             fputs("self-test failed: global shortcuts\n", stderr)
             exit(1)
         }
@@ -169,7 +172,8 @@ enum SelfTests {
         guard compactPRTokens.map(\.kind) == [.hashNumber(42), .hashNumber(43)] else {
             fputs("self-test failed: case-symmetric compact PR parsing\n", stderr); exit(1)
         }
-        guard ProjectMatcher.bestMatch(for: "phraos")?.key == "PHAROS",
+        guard ProjectMatcher.bestMatch(for: "nunc")?.key == "NUNCID",
+              ProjectMatcher.bestMatch(for: "phraos")?.key == "PHAROS",
               ProjectMatcher.bestMatch(for: "pamo")?.key == "PAI",
               ProjectMatcher.bestMatch(for: "haus")?.key == "HAUSV",
               ProjectMatcher.damerauLevenshtein("phraos", "pharos") == 1 else {
@@ -191,7 +195,7 @@ enum SelfTests {
             exit(1)
         }
         for (legacy, expected) in [("dwell", HoverActivationMode.toggleHover), ("continuous", .toggleHover), ("always", .toggleHover), ("option", .pressToScan), ("hold", .pressToScan), ("off", .off)] {
-            let migrationSuite = "GlintSelfTests.Migration.\(legacy).\(UUID().uuidString)"
+            let migrationSuite = "NuncidSelfTests.Migration.\(legacy).\(UUID().uuidString)"
             guard let migrationDefaults = UserDefaults(suiteName: migrationSuite) else { exit(1) }
             migrationDefaults.set(legacy, forKey: legacy == "always" || legacy == "option" ? "triggerMode" : "activation.mode")
             let migrated = ActivationPreferences.load(defaults: migrationDefaults)
@@ -201,7 +205,7 @@ enum SelfTests {
             }
             migrationDefaults.removePersistentDomain(forName: migrationSuite)
         }
-        let corruptSuite = "GlintSelfTests.CorruptActivation.\(UUID().uuidString)"
+        let corruptSuite = "NuncidSelfTests.CorruptActivation.\(UUID().uuidString)"
         guard let corruptDefaults = UserDefaults(suiteName: corruptSuite) else { exit(1) }
         corruptDefaults.set("not-a-mode", forKey: "activation.mode")
         guard ActivationPreferences.load(defaults: corruptDefaults).mode == ActivationPreferences.defaults.mode else {
@@ -378,7 +382,7 @@ enum SelfTests {
             fputs("self-test failed: appearance reset undo lifecycle\n", stderr); exit(1)
         }
         let previewLines = (1...6).map {
-            GlintLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")
+            TicketLine(key: "GLINT-\($0)", state: "open", title: "Preview \($0)", source: "ppm", detail: "Detail")
         }
         let previewHeight = OverlayMetrics.preferredHeight(lines: previewLines, sticky: true, preferences: presentation)
         let previewScale = OverlayMetrics.previewScale(
@@ -409,7 +413,7 @@ enum SelfTests {
             fputs("self-test failed: footer-safe max-stress pinned layout\n", stderr); exit(1)
         }
         let shortStressLines = [
-            GlintLine(
+            TicketLine(
                 key: "GLINT-24",
                 state: "in-progress",
                 title: "Make detailed ticket cards adapt precisely to long real-world titles without hiding alternatives",
@@ -579,7 +583,7 @@ enum SelfTests {
               cancellationResult.get() else {
             fputs("self-test failed: subprocess cancellation propagation\n", stderr); exit(1)
         }
-        print("GLINT self-tests passed")
+        print("Nuncid self-tests passed")
         exit(0)
     }
 }

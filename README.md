@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/hero-0.3.1.png" alt="GLINT — point at a ticket and know what matters" width="100%">
+  <img src="docs/screenshots/hero-0.4.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.3-0A84FF?style=flat-square" alt="Latest release 0.3.3"></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-0.4.0-0A84FF?style=flat-square" alt="Latest release 0.4.0"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -13,11 +13,11 @@
 
 <p align="center">
   <strong>Ticket context, right where you point.</strong><br>
-  GLINT is a private macOS menu-bar utility that turns nearby issue references into useful, navigable cards.
+  <strong>Nuncid</strong> (pronounced <strong>NUN-sid</strong>, formerly Glint) is a private macOS menu-bar utility that turns nearby issue references into useful, navigable cards.
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/glint/releases/latest"><strong>Download the latest release</strong></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><strong>Download the latest release</strong></a>
   &nbsp;·&nbsp;
   <a href="#build-from-source">Build from source</a>
   &nbsp;·&nbsp;
@@ -26,17 +26,17 @@
 
 ## Look once. Keep moving.
 
-GLINT watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
+Nuncid watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
 
 <p align="center">
-  <img src="docs/screenshots/workflow-0.3.1.png" alt="GLINT scans a ticket reference at the pointer and opens a rich card with ranked alternatives" width="100%">
+  <img src="docs/screenshots/workflow-0.4.0.png" alt="Nuncid scans a ticket reference at the pointer and opens a rich card with ranked alternatives" width="100%">
 </p>
 
 | Invoke anywhere | Keep context nearby | Navigate without friction |
 | --- | --- | --- |
 | The **activation shortcut** can stay off, toggle hover scanning, or scan once when pressed. Toggled hover scans each newly settled pointer location once—never in a timer loop. | **Pin** turns the result into a movable card with a remembered screen position. Use the handle to place it where it belongs. | Scroll through results, Shift-scroll through projects, type a number to jump tickets, or fuzzy-type a project—even with a typo. |
 
-The small scan cue shows where GLINT is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
+The small scan cue shows where Nuncid is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
 
 ## Your shortcuts. Your card.
 
@@ -44,25 +44,25 @@ Activation and presentation are independent on purpose. Record any safe global s
 
 | Hover off | Hover on | Ticket found |
 | --- | --- | --- |
-| <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed GLINT menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
+| <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed Nuncid menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
 
 <p align="center">
-  <img src="docs/screenshots/settings-showcase-0.3.2.png" alt="GLINT activation and card appearance settings" width="100%">
+  <img src="docs/screenshots/settings-showcase-0.4.0.png" alt="Nuncid activation and card appearance settings" width="100%">
 </p>
 
-GLINT can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
+Nuncid can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
 
 ## What changed—and why it feels better
 
 The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
 
 <p align="center">
-  <img src="docs/screenshots/version-history-0.3.3.png" alt="GLINT Version History with the current release highlighted and benefit-led notes" width="100%">
+  <img src="docs/screenshots/version-history-0.4.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
 </p>
 
 ## Smarter resolution, fewer wrong guesses
 
-Explicit evidence wins. GLINT combines the shape and position of nearby OCR text with GitHub URLs, the foreground app and window, the pinned card, and short-lived per-app history. It resolves strong candidates first, tries weaker fallbacks only when needed, and never fabricates a “maybe” result.
+Explicit evidence wins. Nuncid combines the shape and position of nearby OCR text with GitHub URLs, the foreground app and window, the pinned card, and short-lived per-app history. It resolves strong candidates first, tries weaker fallbacks only when needed, and never fabricates a “maybe” result.
 
 - Known PPM projects resolve through the `ppm` Paimos instance; `START` resolves through `pma`.
 - Explicit GitHub pull-request URLs route directly to their repository.
@@ -72,22 +72,22 @@ Explicit evidence wins. GLINT combines the shape and position of nearby OCR text
 
 ## Private by construction
 
-The screen crop and Apple Vision OCR stay in the GLINT process. No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to an AI model, and there is no telemetry.
+The screen crop and Apple Vision OCR stay in the Nuncid process. No screenshot is saved or uploaded. No pixels, OCR text, or ticket content are sent to an AI model, and there is no telemetry.
 
-GLINT launches only local, read-only commands:
+Nuncid launches only local, read-only commands:
 
 ```text
 paimos --instance <ppm|pma> --json issue get <key>
 gh pr view … --json …
 ```
 
-Those tools may contact their configured services using your existing credentials. GLINT never writes to either service. Scan-feedback panels opt out of screen capture, and the only learned hint is a bounded, decaying project association keyed by application bundle identifier. Settings can clear it together with cached titles.
+Those tools may contact their configured services using your existing credentials. Nuncid never writes to either service. Scan-feedback panels opt out of screen capture, and the only learned hint is a bounded, decaying project association keyed by application bundle identifier. Settings can clear it together with cached titles.
 
 ## Install
 
-1. Download [`Glint-0.3.3.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.3/Glint-0.3.3.zip).
-2. Move `Glint.app` to `~/Applications` or `/Applications`.
-3. Open GLINT and grant Screen Recording when macOS asks.
+1. Download [`Nuncid-0.4.0.zip`](https://github.com/markus-barta/nuncid/releases/download/v0.4.0/Nuncid-0.4.0.zip).
+2. Move `Nuncid.app` to `~/Applications` or `/Applications`.
+3. Open Nuncid and grant Screen Recording when macOS asks.
 4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
 
 Default commands:
@@ -121,10 +121,10 @@ You need macOS 13 or newer, a Swift 5.10 toolchain, and authenticated `paimos` /
 swift build
 ./scripts/test.sh
 ./scripts/package-app.sh
-open dist/Glint.app
+open dist/Nuncid.app
 ```
 
-The packaging script stages `dist/Glint.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so Screen Recording permission survives rebuilds without a paid signing identity.
+The packaging script stages `dist/Nuncid.app` outside SwiftPM's cleanable build directory. It derives the build number from Git history and applies a stable local designated requirement so Screen Recording permission survives rebuilds without a paid signing identity.
 
 ## Release and visual workflow
 
@@ -137,13 +137,13 @@ The packaging script stages `dist/Glint.app` outside SwiftPM's cleanable build d
 swift scripts/render-marketing-shots.swift
 ```
 
-The last command rebuilds the README hero and feature gallery from the real captured GLINT interfaces plus the checked-in scan-field artwork. The raw release screenshots and the [0.3.0 visual comparison](docs/compare-0.3.0.html) remain available for closer inspection.
+The last command rebuilds the README hero and feature gallery from the real captured Nuncid interfaces plus the checked-in scan-field artwork. Historical GLINT captures and the [0.3.0 visual comparison](docs/compare-0.3.0.html) remain unchanged so the release record stays truthful. The [rename decision and migration record](docs/nuncid-rename-2026-08-30.md) documents the collision screen and compatibility choices.
 
 ## Project map
 
 ```text
-Sources/Glint/               App, OCR, parsing, resolution, shortcuts, and UI
-Sources/Glint/Resources/     Packaged visual assets
+Sources/Nuncid/              App, OCR, parsing, resolution, shortcuts, and UI
+Sources/Nuncid/Resources/    Packaged visual assets
 Fixtures/                    Deterministic hover/OCR test material
 docs/screenshots/            Raw product captures and rendered marketing images
 scripts/test.sh              Build, self-tests, and versioning regression checks
@@ -154,10 +154,10 @@ scripts/render-marketing-shots.swift
                              Reproducible GitHub image compositor
 ```
 
-GLINT is deliberately small, local-first, and read-only. Those are product constraints, not missing features.
+Nuncid is deliberately small, local-first, and read-only. Those are product constraints, not missing features.
 
 ## License
 
-GLINT is open-source software licensed under the [GNU Affero General Public License v3.0](LICENSE). The complete terms are included in the repository and inside every packaged app.
+Nuncid is open-source software licensed under the [GNU Affero General Public License v3.0](LICENSE). The complete terms are included in the repository and inside every packaged app.
 
 Copyright © 2026 Markus Barta.

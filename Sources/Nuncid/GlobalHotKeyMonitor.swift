@@ -1,9 +1,9 @@
 import AppKit
 import Carbon
 
-private let glintHotKeySignature: OSType = 0x474C4E54 // GLNT
+private let nuncidHotKeySignature: OSType = 0x4E554E43 // NUNC
 
-private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus {
+private func nuncidHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus {
     guard let event, let userData else { return OSStatus(eventNotHandledErr) }
     var identifier = EventHotKeyID()
     let status = GetEventParameter(
@@ -15,7 +15,7 @@ private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userD
         nil,
         &identifier
     )
-    guard status == noErr, identifier.signature == glintHotKeySignature else { return OSStatus(eventNotHandledErr) }
+    guard status == noErr, identifier.signature == nuncidHotKeySignature else { return OSStatus(eventNotHandledErr) }
     let monitor = Unmanaged<GlobalHotKeyMonitor>.fromOpaque(userData).takeUnretainedValue()
     Task { @MainActor in monitor.invoke(id: identifier.id) }
     return noErr
@@ -33,7 +33,7 @@ private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userD
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(
             GetApplicationEventTarget(),
-            glintHotKeyHandler,
+            nuncidHotKeyHandler,
             1,
             &eventType,
             Unmanaged.passUnretained(self).toOpaque(),
@@ -62,7 +62,7 @@ private func glintHotKeyHandler(_: EventHandlerCallRef?, event: EventRef?, userD
     private func register(_ hotKey: HotKey?, command: Command) {
         guard let hotKey else { return }
         var reference: EventHotKeyRef?
-        let identifier = EventHotKeyID(signature: glintHotKeySignature, id: command.rawValue)
+        let identifier = EventHotKeyID(signature: nuncidHotKeySignature, id: command.rawValue)
         let status = RegisterEventHotKey(
             hotKey.keyCode,
             carbonModifiers(hotKey.modifiers),

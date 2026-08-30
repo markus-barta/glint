@@ -135,7 +135,7 @@ enum TokenParser {
 }
 
 enum CandidatePlanner {
-    static let ppmProjects: Set<String> = ["GLINT", "HAUSV", "JANUS", "PHAROS", "PAI", "INSPR"]
+    static let ppmProjects: Set<String> = ["NUNCID", "GLINT", "HAUSV", "JANUS", "PHAROS", "PAI", "INSPR"]
     static let pmaProjects: Set<String> = ["START"]
 
     static func tracker(for project: String, context: ResolutionContext) -> Tracker {
@@ -170,7 +170,7 @@ enum CandidatePlanner {
 
     static func repo(for project: String) -> String? {
         switch project {
-        case "GLINT": return "markus-barta/glint"
+        case "NUNCID", "GLINT": return "markus-barta/nuncid"
         case "PAI": return "inspr-at/paimos"
         case "HAUSV": return "inspr-at/hausv-org"
         case "PHAROS": return "inspr-at/pharos"

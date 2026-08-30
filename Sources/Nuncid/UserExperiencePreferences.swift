@@ -170,7 +170,7 @@ struct PresentationPreferences: Equatable {
         defaults.set(width.rawValue, forKey: prefix + "width")
         defaults.set(density.rawValue, forKey: prefix + "density")
         defaults.set(surface.rawValue, forKey: prefix + "surface")
-        NotificationCenter.default.post(name: .glintPresentationPreferencesDidChange, object: nil)
+        NotificationCenter.default.post(name: .nuncidPresentationPreferencesDidChange, object: nil)
     }
 
     func circularAlternativeIndices(count: Int, selectedIndex: Int) -> [Int] {
@@ -208,5 +208,5 @@ struct PreferenceFeedback: Equatable {
 }
 
 extension Notification.Name {
-    static let glintPresentationPreferencesDidChange = Notification.Name("glint.presentationPreferencesDidChange")
+    static let nuncidPresentationPreferencesDidChange = Notification.Name("nuncid.presentationPreferencesDidChange")
 }
