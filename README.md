@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.2-0A84FF?style=flat-square" alt="Latest release 0.3.2"></a>
+  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.3-0A84FF?style=flat-square" alt="Latest release 0.3.3"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -52,6 +52,14 @@ Activation and presentation are independent on purpose. Record any safe global s
 
 GLINT can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
 
+## What changed—and why it feels better
+
+The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
+
+<p align="center">
+  <img src="docs/screenshots/version-history-0.3.3.png" alt="GLINT Version History with the current release highlighted and benefit-led notes" width="100%">
+</p>
+
 ## Smarter resolution, fewer wrong guesses
 
 Explicit evidence wins. GLINT combines the shape and position of nearby OCR text with GitHub URLs, the foreground app and window, the pinned card, and short-lived per-app history. It resolves strong candidates first, tries weaker fallbacks only when needed, and never fabricates a “maybe” result.
@@ -77,7 +85,7 @@ Those tools may contact their configured services using your existing credential
 
 ## Install
 
-1. Download [`Glint-0.3.2.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.2/Glint-0.3.2.zip).
+1. Download [`Glint-0.3.3.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.3/Glint-0.3.3.zip).
 2. Move `Glint.app` to `~/Applications` or `/Applications`.
 3. Open GLINT and grant Screen Recording when macOS asks.
 4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.

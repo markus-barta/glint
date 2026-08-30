@@ -45,6 +45,26 @@ enum SelfTests {
             fputs("self-test failed: activation shortcut and menu bar state policy\n", stderr)
             exit(1)
         }
+        let changelogVersionDates = (try? String(contentsOfFile: "CHANGELOG.md", encoding: .utf8))?
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                let prefix = "## ["
+                guard line.hasPrefix(prefix),
+                      let closing = line.firstIndex(of: "]") else { return nil }
+                let version = line[line.index(line.startIndex, offsetBy: prefix.count)..<closing]
+                let suffix = line[line.index(after: closing)...].trimmingCharacters(in: .whitespaces)
+                guard suffix.hasPrefix("- ") else { return nil }
+                return "\(version)|\(suffix.dropFirst(2))"
+            }
+        let noteVersionDates = ReleaseHistory.notes.map { "\($0.version)|\($0.isoDate)" }
+        guard ReleaseHistory.isValid(currentVersion: GlintBrand.version),
+              changelogVersionDates == noteVersionDates,
+              ReleaseHistory.notes.allSatisfy({ note in
+                  note.items.allSatisfy { !$0.label.isEmpty && !$0.detail.isEmpty }
+              }) else {
+            fputs("self-test failed: positive version history catalogue\n", stderr)
+            exit(1)
+        }
         let bare = NearbyToken(raw: "203", kind: .bareNumber(203), sourceOrder: 0)
         guard CandidatePlanner.candidates(for: bare, context: context) == [
             .issue(tracker: .pma, key: "START-203"),
