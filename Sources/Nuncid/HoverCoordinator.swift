@@ -139,9 +139,12 @@ enum PinnedScanOwnershipPolicy {
     }
 
     func start() {
-        overlay.restorePinnedIfNeeded(shortcutLabel: pinShortcutLabel)
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.overlay.restorePinnedIfNeeded(shortcutLabel: self.pinShortcutLabel)
         }
     }
 
