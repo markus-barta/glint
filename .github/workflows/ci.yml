@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and test
+        run: ./scripts/test.sh
+
+      - name: Package release
+        run: ./scripts/package-release.sh
+
+      - name: Verify packaged release
+        run: ./scripts/verify-release.sh
+
+      # Complete strict-concurrency checking is intentionally a Swift 6
+      # migration gate. The package remains in Swift 5 language mode for 1.0.

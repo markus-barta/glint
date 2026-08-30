@@ -4,12 +4,17 @@ repo_dir=${0:A:h:h}
 configuration=${1:-release}
 cd "$repo_dir"
 version=$(tr -d '[:space:]' < "$repo_dir/VERSION")
+signing_identity=${NUNCID_SIGNING_IDENTITY:--}
+signing_mode=ad-hoc
+if [[ "$signing_identity" != "-" ]]; then
+  signing_mode=developer-id
+fi
 if [[ ! "$version" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]]; then
   print -u2 "Invalid semantic version in VERSION: $version"
   exit 1
 fi
 build_number=$(git -C "$repo_dir" rev-list --count HEAD)
-swift build -c "$configuration"
+swift build -c "$configuration" -Xswiftc -warnings-as-errors
 binary_dir=$(cd "$repo_dir" && swift build -c "$configuration" --show-bin-path)
 app_dir="$repo_dir/dist/Nuncid.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
@@ -42,7 +47,14 @@ iconutil -c icns "$iconset" -o "$app_dir/Contents/Resources/Nuncid.icns"
 /usr/libexec/PlistBuddy -c 'Add :LSMinimumSystemVersion string 13.0' "$app_dir/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$app_dir/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :NSScreenCaptureUsageDescription string Nuncid reads a small cursor-adjacent crop locally to recognize ticket keys.' "$app_dir/Contents/Info.plist"
-codesign --force --sign - \
-  --requirements '=designated => identifier "at.markusbarta.glint"' \
-  "$app_dir"
+/usr/libexec/PlistBuddy -c "Add :NuncidSigningMode string $signing_mode" "$app_dir/Contents/Info.plist"
+if [[ "$signing_mode" == developer-id ]]; then
+  codesign --force --options runtime --timestamp --sign "$signing_identity" "$app_dir"
+  print -r -- "Signed with Developer ID identity: $signing_identity" >&2
+else
+  codesign --force --sign - \
+    --requirements '=designated => identifier "at.markusbarta.glint"' \
+    "$app_dir"
+  print -r -- 'Signed locally (ad hoc); this build is not notarized.' >&2
+fi
 echo "$app_dir"

@@ -21,6 +21,21 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.0.0",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "Ready for the long run",
+            headline: "Nuncid is ready to call 1.0.",
+            intro: "The app you use and the release you download now travel with one dependable story—from the GitHub front door to the packaged card on your Mac.",
+            items: [
+                ReleaseNoteItem(label: "Always the current Nuncid", detail: "The install path follows the latest verified release, and automatic checks keep every public version reference in agreement."),
+                ReleaseNoteItem(label: "A clear first launch", detail: "Nuncid explains its signing status honestly, with an optional Developer ID and notarization path ready when credentials are available."),
+                ReleaseNoteItem(label: "Proof that travels", detail: "Packaged smoke tests now work away from the source folder, alongside focused release checks that report drift clearly."),
+                ReleaseNoteItem(label: "Checked before it lands", detail: "Every pull request builds, tests, packages, verifies its signature, and checks release metadata on a real macOS runner."),
+                ReleaseNoteItem(label: "A current front door", detail: "GitHub now shows the released card controls, Settings, Version History, and product story exactly as they appear in 1.0.")
+            ]
+        ),
+        ReleaseNote(
             version: "0.5.3",
             isoDate: "2026-08-30",
             date: "30 August 2026",
@@ -223,7 +238,7 @@ struct VersionHistoryView: View {
             Divider()
             detail
         }
-        .frame(minWidth: 720, idealWidth: 820, minHeight: 480, idealHeight: 560)
+        .frame(minWidth: 720, idealWidth: 820, minHeight: 480, idealHeight: 680)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
