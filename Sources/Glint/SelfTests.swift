@@ -34,9 +34,15 @@ enum SelfTests {
             fputs("self-test failed: tracker routing\n", stderr)
             exit(1)
         }
-        guard TriggerMode.allCases.map(\.rawValue) == ["dwell", "option", "always"],
-              TriggerMode.dwell.label.contains("300") else {
-            fputs("self-test failed: trigger modes\n", stderr)
+        guard HoverActivationMode.allCases.map(\.title) == ["Off", "Toggle Hover", "Press to Scan"],
+              ActivationShortcutPolicy.action(for: .off) == .none,
+              ActivationShortcutPolicy.action(for: .toggleHover) == .toggleHover,
+              ActivationShortcutPolicy.action(for: .pressToScan) == .scanOnce,
+              HoverMenuBarState.resolve(mode: .toggleHover, hoverEnabled: false, matchFound: true) == .inactive,
+              HoverMenuBarState.resolve(mode: .toggleHover, hoverEnabled: true, matchFound: false) == .active,
+              HoverMenuBarState.resolve(mode: .toggleHover, hoverEnabled: true, matchFound: true) == .matchFound,
+              HoverMenuBarState.resolve(mode: .pressToScan, hoverEnabled: true, matchFound: true) == .inactive else {
+            fputs("self-test failed: activation shortcut and menu bar state policy\n", stderr)
             exit(1)
         }
         let bare = NearbyToken(raw: "203", kind: .bareNumber(203), sourceOrder: 0)
@@ -74,7 +80,6 @@ enum SelfTests {
         GlintPreferences.save(customInspect, key: "inspectHotKey", defaults: defaults)
         GlintPreferences.save(nil, key: "pinHotKey", defaults: defaults)
         guard GlintPreferences.load(defaults: defaults) == GlintPreferences(
-            triggerMode: .always,
             inspectHotKey: customInspect,
             pinHotKey: nil
         ) else {
@@ -158,20 +163,17 @@ enum SelfTests {
             exit(1)
         }
         var activation = ActivationPreferences.defaults
-        activation.mode = .dwell
-        activation.dwellMilliseconds = 475
-        activation.holdModifiers = [.control, .option]
-        activation.responsiveness = .fast
+        activation.mode = .toggleHover
         activation.scanFeedbackEnabled = false
         activation.persist(defaults: defaults)
         guard ActivationPreferences.load(defaults: defaults) == activation else {
             fputs("self-test failed: activation preference persistence\n", stderr)
             exit(1)
         }
-        for (legacy, expected) in [("dwell", HoverActivationMode.dwell), ("option", .hold), ("always", .continuous)] {
+        for (legacy, expected) in [("dwell", HoverActivationMode.toggleHover), ("continuous", .toggleHover), ("always", .toggleHover), ("option", .pressToScan), ("hold", .pressToScan), ("off", .off)] {
             let migrationSuite = "GlintSelfTests.Migration.\(legacy).\(UUID().uuidString)"
             guard let migrationDefaults = UserDefaults(suiteName: migrationSuite) else { exit(1) }
-            migrationDefaults.set(legacy, forKey: "triggerMode")
+            migrationDefaults.set(legacy, forKey: legacy == "always" || legacy == "option" ? "triggerMode" : "activation.mode")
             let migrated = ActivationPreferences.load(defaults: migrationDefaults)
             guard migrated.mode == expected,
                   migrationDefaults.string(forKey: "activation.mode") == expected.rawValue else {
@@ -186,25 +188,23 @@ enum SelfTests {
             fputs("self-test failed: corrupt activation mode fallback\n", stderr); exit(1)
         }
         corruptDefaults.removePersistentDomain(forName: corruptSuite)
-        let defaultHoldModifiers = ActivationPreferences.defaults.holdModifiers
-        guard ActivationPreferences.sanitizedHoldModifiers("corrupt") == defaultHoldModifiers,
-              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: -1)) == defaultHoldModifiers,
-              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: UInt64(UInt32.max) + 1)) == defaultHoldModifiers,
-              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: UInt32.max)) == defaultHoldModifiers,
-              ActivationPreferences.sanitizedHoldModifiers(NSNumber(value: HotKeyModifiers.control.rawValue | HotKeyModifiers.shift.rawValue)) == [.control, .shift] else {
-            fputs("self-test failed: sanitized hold modifiers\n", stderr); exit(1)
-        }
         guard !HoverInvocationPolicy.shouldTrigger(
-            preferences: .init(mode: .off, dwellMilliseconds: 300, holdModifiers: [.option], responsiveness: .balanced, scanFeedbackEnabled: true),
-            stableDuration: 10, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 10
+            preferences: .init(mode: .off, scanFeedbackEnabled: true),
+            hoverEnabled: true, stableDuration: 10, locationAlreadyScanned: false
         ), !HoverInvocationPolicy.shouldTrigger(
             preferences: activation,
-            stableDuration: 0.474, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 10
+            hoverEnabled: false, stableDuration: 10, locationAlreadyScanned: false
+        ), !HoverInvocationPolicy.shouldTrigger(
+            preferences: activation,
+            hoverEnabled: true, stableDuration: ActivationPreferences.hoverSettleDuration - 0.001, locationAlreadyScanned: false
         ), HoverInvocationPolicy.shouldTrigger(
             preferences: activation,
-            stableDuration: 0.475, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 10
+            hoverEnabled: true, stableDuration: ActivationPreferences.hoverSettleDuration, locationAlreadyScanned: false
+        ), !HoverInvocationPolicy.shouldTrigger(
+            preferences: activation,
+            hoverEnabled: true, stableDuration: 10, locationAlreadyScanned: true
         ) else {
-            fputs("self-test failed: off/dwell invocation policy\n", stderr)
+            fputs("self-test failed: one-scan-per-location hover policy\n", stderr)
             exit(1)
         }
         guard ScanFeedbackLifecycleEvent.allCases.allSatisfy({
@@ -316,35 +316,6 @@ enum SelfTests {
                 currentGeneration: resolvedDecision.generation
               ) else {
             fputs("self-test failed: idempotent scan feedback presentation\n", stderr); exit(1)
-        }
-        var holdActivation = activation
-        holdActivation.mode = .hold
-        guard !HoverInvocationPolicy.shouldTrigger(
-            preferences: holdActivation,
-            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [.option], elapsedSinceLastScan: 1
-        ), HoverInvocationPolicy.shouldTrigger(
-            preferences: holdActivation,
-            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [.control, .option, .shift], elapsedSinceLastScan: 1
-        ) else {
-            fputs("self-test failed: custom hold modifier invocation policy\n", stderr)
-            exit(1)
-        }
-        var continuousActivation = activation
-        continuousActivation.mode = .continuous
-        continuousActivation.responsiveness = .fast
-        guard !HoverInvocationPolicy.shouldTrigger(
-            preferences: continuousActivation,
-            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.349
-        ), !HoverInvocationPolicy.shouldTrigger(
-            preferences: continuousActivation,
-            stableDuration: 0, dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.35
-        ), HoverInvocationPolicy.shouldTrigger(
-            preferences: continuousActivation,
-            stableDuration: HoverInvocationPolicy.continuousMovementSettleDuration,
-            dwellAlreadyScanned: false, heldModifiers: [], elapsedSinceLastScan: 0.35
-        ) else {
-            fputs("self-test failed: continuous responsiveness invocation policy\n", stderr)
-            exit(1)
         }
         guard !ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 35, elapsed: 7.9),
               ManualInspectionPolicy.shouldDismiss(distanceFromAnchor: 37, elapsed: 1),

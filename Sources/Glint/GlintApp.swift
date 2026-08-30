@@ -46,11 +46,14 @@ private enum GlintBrand {
 }
 
 @MainActor final class AppState: ObservableObject {
-    @Published var triggerMode: TriggerMode { didSet { UserDefaults.standard.set(triggerMode.rawValue, forKey: "triggerMode") } }
     @Published var activationPreferences: ActivationPreferences {
         didSet {
             activationPreferences.persist()
-            triggerMode = activationPreferences.legacyTriggerMode
+            if oldValue.mode != activationPreferences.mode {
+                hoverScanningEnabled = false
+                hoverMatchFound = false
+                coordinator?.resetHoverActivation()
+            }
         }
     }
     @Published var presentationPreferences: PresentationPreferences { didSet { presentationPreferences.persist() } }
@@ -59,6 +62,8 @@ private enum GlintBrand {
     @Published var hotKeyError: String?
     @Published var screenRecordingGranted: Bool
     @Published var activity = "Ready"
+    @Published private(set) var hoverScanningEnabled = false
+    @Published private(set) var hoverMatchFound = false
 
     private let hotKeyMonitor: GlobalHotKeyMonitor
     private var coordinator: HoverCoordinator!
@@ -67,9 +72,15 @@ private enum GlintBrand {
 
     init() {
         let preferences = GlintPreferences.load()
-        let activation = ActivationPreferences.load()
+        var activation = ActivationPreferences.load()
         var presentation = PresentationPreferences.load()
 #if DEBUG
+        if CommandLine.arguments.contains("--settings-toggle-hover-probe") ||
+            CommandLine.arguments.contains("--menu-hover-inactive-probe") ||
+            CommandLine.arguments.contains("--menu-hover-active-probe") ||
+            CommandLine.arguments.contains("--menu-match-probe") {
+            activation.mode = .toggleHover
+        }
         if CommandLine.arguments.contains("--settings-appearance-stress-probe") {
             presentation = PresentationPreferences(
                 alternativePreviews: 5,
@@ -82,7 +93,6 @@ private enum GlintBrand {
 #endif
         activationPreferences = activation
         presentationPreferences = presentation
-        triggerMode = activation.legacyTriggerMode
         inspectHotKey = preferences.inspectHotKey
         pinHotKey = preferences.pinHotKey
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
@@ -91,13 +101,21 @@ private enum GlintBrand {
         hotKeyMonitor.onCommand = { [weak self] command in
             guard let self else { return }
             switch command {
-            case .inspect: self.coordinator.performInspectCommand()
+            case .inspect: self.performActivationCommand()
             case .pin: self.coordinator.performPinCommand()
             }
         }
         configureHotKeys()
         coordinator.start()
 #if DEBUG
+        if CommandLine.arguments.contains("--settings-toggle-hover-probe") ||
+            CommandLine.arguments.contains("--menu-hover-active-probe") ||
+            CommandLine.arguments.contains("--menu-match-probe") {
+            performActivationCommand()
+            if CommandLine.arguments.contains("--menu-match-probe") {
+                setHoverMatchFound(true)
+            }
+        }
         if CommandLine.arguments.contains("--settings-probe") || CommandLine.arguments.contains("--settings-capture-probe") {
             DispatchQueue.main.async { [weak self] in self?.openSettings() }
         }
@@ -147,6 +165,30 @@ private enum GlintBrand {
     func resetPinHotKey() { pinHotKey = .pin }
     func resetAppearance() { presentationPreferences = .defaults }
 
+    func performActivationCommand() {
+        switch ActivationShortcutPolicy.action(for: activationPreferences.mode) {
+        case .none:
+            activity = "Scanning off"
+        case .toggleHover:
+            if !hoverScanningEnabled && !screenRecordingGranted {
+                requestScreenRecording()
+                guard screenRecordingGranted else {
+                    activity = "Screen Recording required"
+                    return
+                }
+            }
+            hoverScanningEnabled.toggle()
+            hoverMatchFound = false
+            coordinator.setHoverScanningEnabled(hoverScanningEnabled)
+        case .scanOnce:
+            coordinator.performInspectCommand()
+        }
+    }
+
+    func setHoverMatchFound(_ found: Bool) {
+        hoverMatchFound = activationPreferences.mode == .toggleHover && hoverScanningEnabled && found
+    }
+
     private func configureHotKeys() {
         guard coordinator != nil else { return }
         if GlintPreferences.shortcutsConflict(inspect: inspectHotKey, pin: pinHotKey), let inspectHotKey {
@@ -163,14 +205,14 @@ private enum GlintBrand {
 @MainActor final class SettingsWindowController: NSWindowController {
     init(state: AppState) {
         #if DEBUG
-        let captureHeight: CGFloat = CommandLine.arguments.contains("--settings-tall-capture-probe") ? 780 : 650
+        let captureHeight: CGFloat = CommandLine.arguments.contains("--settings-tall-capture-probe") ? 780 : 720
         #else
-        let captureHeight: CGFloat = 650
+        let captureHeight: CGFloat = 720
         #endif
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: captureHeight), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "GLINT Settings"
         window.titlebarSeparatorStyle = .line
-        window.minSize = NSSize(width: 760, height: 580)
+        window.minSize = NSSize(width: 760, height: 650)
         window.isReleasedWhenClosed = false
         let hostingView = NSHostingView(rootView: SettingsView(state: state))
         hostingView.sizingOptions = []
@@ -497,7 +539,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(minWidth: 760, idealWidth: 840, minHeight: 580, idealHeight: 650)
+        .frame(minWidth: 760, idealWidth: 840, minHeight: 650, idealHeight: 720)
     }
 
     private var sidebar: some View {
@@ -556,14 +598,14 @@ struct SettingsView: View {
     }
 
     private var scanningPage: some View {
-        SettingsPage(title: "How GLINT Activates", subtitle: "Scan once on command, with optional hands-free hover scanning.") {
+        SettingsPage(title: "How GLINT Activates", subtitle: "Choose what the activation shortcut does.") {
             SettingsCard(padding: 0) {
-                shortcutRow(icon: "cursorarrow.rays", title: "Inspect now", subtitle: "Always performs one scan beneath the pointer.", hotKey: $state.inspectHotKey, forbidden: state.pinHotKey)
+                shortcutRow(icon: "cursorarrow.rays", title: "Activation shortcut", subtitle: "Controls the selected behavior below.", hotKey: $state.inspectHotKey, forbidden: state.pinHotKey)
             }
 
             SettingsCard {
-                SettingsCardHeader(icon: "cursorarrow.motionlines", title: "Hover activation", subtitle: "Optional. Choose when pointing alone should start a scan.")
-                Picker("Hover activation", selection: $state.activationPreferences.mode) {
+                SettingsCardHeader(icon: "cursorarrow.motionlines", title: "Shortcut behavior", subtitle: "Choose one clear action for the activation shortcut.")
+                Picker("Shortcut behavior", selection: $state.activationPreferences.mode) {
                     ForEach(HoverActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
                 .pickerStyle(.segmented)
@@ -571,7 +613,18 @@ struct SettingsView: View {
                 Text(state.activationPreferences.mode.subtitle)
                     .font(.callout).foregroundStyle(.secondary)
 
-                activationDetail
+                if state.activationPreferences.mode == .toggleHover {
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Hover is \(state.hoverScanningEnabled ? "on" : "off")").fontWeight(.medium)
+                            Text(state.hoverMatchFound ? "The menu bar icon confirms a ticket was found." : "The menu bar icon shows when hover is active.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(state.hoverScanningEnabled ? "Turn Off" : "Turn On") { state.performActivationCommand() }
+                    }
+                }
 
                 Divider()
                 Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
@@ -585,10 +638,14 @@ struct SettingsView: View {
 
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "sparkles").foregroundStyle(.tint).font(.title3)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 7) {
                     Text("Your setup").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text(state.activationPreferences.effectiveSummary(inspectHotKey: state.inspectHotKey))
-                        .font(.headline).fixedSize(horizontal: false, vertical: true)
+                    setupRow("Behavior", state.activationPreferences.mode.title)
+                    setupRow("Shortcut", state.inspectHotKey?.label ?? "Not set")
+                    if state.activationPreferences.mode == .toggleHover {
+                        setupRow("Hover", state.hoverScanningEnabled ? (state.hoverMatchFound ? "On · ticket found" : "On") : "Off")
+                    }
+                    setupRow("Scan feedback", state.activationPreferences.scanFeedbackEnabled ? "On" : "Off")
                 }
                 Spacer()
             }
@@ -601,51 +658,6 @@ struct SettingsView: View {
                 Text("Changes apply immediately—there is no Save button.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Restore Activation Defaults") { state.resetActivation(); recorderFeedback = .success("Activation defaults restored.") }
-            }
-        }
-    }
-
-    @ViewBuilder private var activationDetail: some View {
-        switch state.activationPreferences.mode {
-        case .off:
-            EmptyView()
-        case .dwell:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Dwell delay").fontWeight(.medium)
-                    Spacer()
-                    Text("\(state.activationPreferences.dwellMilliseconds) ms").font(.body.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Slider(value: Binding(
-                    get: { Double(state.activationPreferences.dwellMilliseconds) },
-                    set: { state.activationPreferences.dwellMilliseconds = Int($0.rounded() / 50) * 50 }
-                ), in: 150...1500, step: 50)
-                HStack { Text("Faster"); Spacer(); Text("More deliberate") }.font(.caption2).foregroundStyle(.tertiary)
-            }
-        case .hold:
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Hold modifier combination").fontWeight(.medium)
-                HStack(spacing: 8) {
-                    modifierButton(.control, symbol: "⌃", name: "Control")
-                    modifierButton(.option, symbol: "⌥", name: "Option")
-                    modifierButton(.shift, symbol: "⇧", name: "Shift")
-                    modifierButton(.command, symbol: "⌘", name: "Command")
-                    Spacer()
-                }
-                Text("Select one or more modifiers. At least one stays enabled to prevent accidental scanning.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        case .continuous:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Responsiveness").fontWeight(.medium)
-                    Spacer()
-                    Text("Checks every \(state.activationPreferences.responsiveness.detail)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Picker("Responsiveness", selection: $state.activationPreferences.responsiveness) {
-                    ForEach(ContinuousResponsiveness.allCases) { option in Text(option.title).tag(option) }
-                }
-                .pickerStyle(.segmented).labelsHidden()
             }
         }
     }
@@ -800,27 +812,13 @@ struct SettingsView: View {
         .padding(16)
     }
 
-    private func modifierButton(_ modifier: HotKeyModifiers, symbol: String, name: String) -> some View {
-        let enabled = state.activationPreferences.holdModifiers.contains(modifier)
-        return Button {
-            var modifiers = state.activationPreferences.holdModifiers
-            if enabled {
-                guard modifiers != modifier else { recorderFeedback = .problem("Keep at least one hover modifier enabled."); NSSound.beep(); return }
-                modifiers.remove(modifier)
-            } else {
-                modifiers.insert(modifier)
-            }
-            state.activationPreferences.holdModifiers = modifiers
-            recorderFeedback = nil
-        } label: {
-            HStack(spacing: 5) { Text(symbol).font(.title3); Text(name).font(.callout) }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .foregroundStyle(enabled ? Color.white : Color.primary)
-                .background(enabled ? Color.accentColor : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+    private func setupRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle().fill(Color.accentColor).frame(width: 5, height: 5)
+            Text(label).foregroundStyle(.secondary)
+            Text(value).fontWeight(.semibold)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(name) hover modifier")
-        .accessibilityValue(enabled ? "On" : "Off")
+        .font(.callout)
     }
 
     private func appearanceRow<Content: View>(_ title: String, detail: String, @ViewBuilder control: () -> Content) -> some View {
@@ -894,7 +892,7 @@ private struct SettingsPage<Content: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 4)
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 24)
@@ -978,14 +976,23 @@ private struct AboutView: View {
     var body: some Scene {
         MenuBarExtra {
             Text(state.screenRecordingGranted ? state.activity : "Screen Recording required").lineLimit(1)
+            if state.activationPreferences.mode == .toggleHover {
+                Label(
+                    state.hoverScanningEnabled
+                        ? (state.hoverMatchFound ? "Hover On · Ticket Found" : "Hover On")
+                        : "Hover Off",
+                    systemImage: state.hoverMatchFound ? "checkmark.circle.fill" : (state.hoverScanningEnabled ? "circle.inset.filled" : "circle")
+                )
+                Button(state.hoverScanningEnabled ? "Turn Hover Off" : "Turn Hover On") { state.performActivationCommand() }
+            }
             if let hotKeyError = state.hotKeyError {
                 Label(hotKeyError, systemImage: "exclamationmark.triangle.fill")
             } else {
-                if let inspect = state.inspectHotKey { Text("Inspect: \(inspect.label)") }
+                if let inspect = state.inspectHotKey { Text("Activation: \(inspect.label)") }
                 if let pin = state.pinHotKey { Text("Pin: \(pin.label)") }
             }
             Divider()
-            Picker("Hover activation", selection: $state.activationPreferences.mode) {
+            Picker("Shortcut behavior", selection: $state.activationPreferences.mode) {
                 ForEach(HoverActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
             }
             Divider()
@@ -994,7 +1001,49 @@ private struct AboutView: View {
             Button("About GLINT") { state.openAbout() }
             Button("Quit GLINT") { NSApp.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(nsImage: GlintBrand.menuBarIcon).renderingMode(.template)
+            GlintMenuBarIcon(
+                mode: state.activationPreferences.mode,
+                hoverEnabled: state.hoverScanningEnabled,
+                matchFound: state.hoverMatchFound
+            )
+        }
+    }
+}
+
+private struct GlintMenuBarIcon: View {
+    let mode: HoverActivationMode
+    let hoverEnabled: Bool
+    let matchFound: Bool
+    private var state: HoverMenuBarState {
+        .resolve(mode: mode, hoverEnabled: hoverEnabled, matchFound: matchFound)
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if state == .matchFound {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.green)
+            } else if state == .active {
+                Image(systemName: "viewfinder.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            } else {
+                Image(nsImage: GlintBrand.menuBarIcon)
+                    .renderingMode(.template)
+                    .opacity(mode == .pressToScan ? 1 : 0.55)
+            }
+        }
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        switch state {
+        case .active: return "GLINT, hover on"
+        case .matchFound: return "GLINT, hover on, ticket found"
+        case .inactive:
+            if mode == .off { return "GLINT, scanning off" }
+            return mode == .pressToScan ? "GLINT, press to scan" : "GLINT, hover off"
         }
     }
 }

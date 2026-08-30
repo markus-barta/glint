@@ -1,31 +1,18 @@
 import Foundation
 
-/// Pure decision seam for automatic hover activation. Manual Inspect remains
-/// unconditional and is intentionally handled by `HoverCoordinator`.
+/// Pure decision seam for toggled hover activation. Shortcut-triggered scans
+/// remain explicit and are intentionally handled by `AppState`.
 enum HoverInvocationPolicy {
-    static let holdRepeatInterval: TimeInterval = 0.65
-    static let continuousMovementSettleDuration: TimeInterval = 0.12
-
     static func shouldTrigger(
         preferences: ActivationPreferences,
+        hoverEnabled: Bool,
         stableDuration: TimeInterval,
-        dwellAlreadyScanned: Bool,
-        heldModifiers: HotKeyModifiers,
-        elapsedSinceLastScan: TimeInterval
+        locationAlreadyScanned: Bool
     ) -> Bool {
-        switch preferences.mode {
-        case .off:
-            return false
-        case .dwell:
-            return stableDuration >= preferences.dwellSeconds && !dwellAlreadyScanned
-        case .hold:
-            let required = preferences.holdModifiers
-            return heldModifiers.intersection(required) == required &&
-                elapsedSinceLastScan >= holdRepeatInterval
-        case .continuous:
-            return stableDuration >= continuousMovementSettleDuration &&
-                elapsedSinceLastScan >= preferences.scanInterval
-        }
+        preferences.mode == .toggleHover &&
+            hoverEnabled &&
+            stableDuration >= ActivationPreferences.hoverSettleDuration &&
+            !locationAlreadyScanned
     }
 }
 

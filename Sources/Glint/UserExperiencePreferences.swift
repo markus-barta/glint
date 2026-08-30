@@ -1,162 +1,110 @@
 import AppKit
 import Foundation
 
+private enum LegacyActivationMode: String {
+    case off, dwell, option
+}
+
 enum HoverActivationMode: String, CaseIterable, Identifiable, Codable {
     case off
-    case dwell
-    case hold
-    case continuous
+    case toggleHover
+    case pressToScan
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .off: return "Off"
-        case .dwell: return "After dwell"
-        case .hold: return "While holding"
-        case .continuous: return "Continuously"
+        case .toggleHover: return "Toggle Hover"
+        case .pressToScan: return "Press to Scan"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .off: return "Only scan when you use the Inspect shortcut."
-        case .dwell: return "Scan after the pointer rests over a ticket."
-        case .hold: return "Scan while your chosen modifier keys are held."
-        case .continuous: return "Follow tickets beneath the pointer automatically."
+        case .off: return "The activation shortcut does nothing."
+        case .toggleHover: return "Press the shortcut to turn hover scanning on or off. Each new pointer location scans once."
+        case .pressToScan: return "Press the shortcut for one scan beneath the pointer."
         }
     }
 }
 
-enum ContinuousResponsiveness: String, CaseIterable, Identifiable, Codable {
-    case calm
-    case balanced
-    case fast
+enum ActivationShortcutAction: Equatable {
+    case none
+    case toggleHover
+    case scanOnce
+}
 
-    var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-    var interval: TimeInterval {
-        switch self {
-        case .calm: return 1.0
-        case .balanced: return 0.65
-        case .fast: return 0.35
+enum ActivationShortcutPolicy {
+    static func action(for mode: HoverActivationMode) -> ActivationShortcutAction {
+        switch mode {
+        case .off: return .none
+        case .toggleHover: return .toggleHover
+        case .pressToScan: return .scanOnce
         }
     }
-    var detail: String {
-        switch self {
-        case .calm: return "1.0 s"
-        case .balanced: return "0.65 s"
-        case .fast: return "0.35 s"
-        }
+}
+
+enum HoverMenuBarState: Equatable {
+    case inactive
+    case active
+    case matchFound
+
+    static func resolve(mode: HoverActivationMode, hoverEnabled: Bool, matchFound: Bool) -> HoverMenuBarState {
+        guard mode == .toggleHover, hoverEnabled else { return .inactive }
+        return matchFound ? .matchFound : .active
     }
 }
 
 struct ActivationPreferences: Equatable {
-    static let dwellRange = 150...1500
+    static let hoverSettleDuration: TimeInterval = 0.3
     static let defaults = ActivationPreferences(
-        mode: .dwell,
-        dwellMilliseconds: 300,
-        holdModifiers: [.option],
-        responsiveness: .balanced,
+        mode: .pressToScan,
         scanFeedbackEnabled: true
     )
 
     var mode: HoverActivationMode
-    var dwellMilliseconds: Int
-    var holdModifiers: HotKeyModifiers
-    var responsiveness: ContinuousResponsiveness
     var scanFeedbackEnabled: Bool
 
-    var dwellSeconds: TimeInterval { TimeInterval(dwellMilliseconds) / 1_000 }
-    var scanInterval: TimeInterval { responsiveness.interval }
-
-    /// Compatibility hook while the coordinator migrates to `mode` directly.
-    var legacyTriggerMode: TriggerMode {
+    /// Downgrade compatibility for builds that still read `triggerMode`.
+    private var legacyMode: LegacyActivationMode {
         switch mode {
         case .off: return .off
-        case .dwell: return .dwell
-        case .hold: return .option
-        case .continuous: return .always
-        }
-    }
-
-    func effectiveSummary(inspectHotKey: HotKey?) -> String {
-        let manual = inspectHotKey.map { "Press \($0.label) anytime" } ?? "Set an Inspect shortcut to scan on demand"
-        switch mode {
-        case .off:
-            return manual + "."
-        case .dwell:
-            return manual + ", or pause for \(dwellMilliseconds) ms over a ticket."
-        case .hold:
-            return manual + ", or hold \(holdModifiers.readableName) while pointing."
-        case .continuous:
-            return manual + "; GLINT also follows the pointer every \(responsiveness.detail)."
+        case .toggleHover: return .dwell
+        case .pressToScan: return .option
         }
     }
 
     static func load(defaults: UserDefaults = .standard) -> ActivationPreferences {
         let prefix = "activation."
-        if defaults.object(forKey: prefix + "mode") == nil {
-            let legacy = TriggerMode(rawValue: defaults.string(forKey: "triggerMode") ?? "dwell") ?? .dwell
-            let migratedMode: HoverActivationMode
-            switch legacy {
-            case .off: migratedMode = .off
-            case .dwell: migratedMode = .dwell
-            case .option: migratedMode = .hold
-            case .always: migratedMode = .continuous
-            }
-            var migrated = ActivationPreferences.defaults
-            migrated.mode = migratedMode
-            migrated.persist(defaults: defaults)
-            return migrated
-        }
-        var value = ActivationPreferences(
-            mode: HoverActivationMode(rawValue: defaults.string(forKey: prefix + "mode") ?? Self.defaults.mode.rawValue) ?? Self.defaults.mode,
-            dwellMilliseconds: defaults.integer(forKey: prefix + "dwellMilliseconds"),
-            holdModifiers: sanitizedHoldModifiers(defaults.object(forKey: prefix + "holdModifiers")),
-            responsiveness: ContinuousResponsiveness(rawValue: defaults.string(forKey: prefix + "responsiveness") ?? "balanced") ?? .balanced,
+        let storedMode = defaults.string(forKey: prefix + "mode")
+            ?? defaults.string(forKey: "triggerMode")
+        let value = ActivationPreferences(
+            mode: migratedMode(from: storedMode),
             scanFeedbackEnabled: defaults.object(forKey: prefix + "scanFeedbackEnabled") == nil ? true : defaults.bool(forKey: prefix + "scanFeedbackEnabled")
         )
-        value.dwellMilliseconds = min(max(value.dwellMilliseconds == 0 ? 300 : value.dwellMilliseconds, dwellRange.lowerBound), dwellRange.upperBound)
-        if defaults.string(forKey: "triggerMode") != value.legacyTriggerMode.rawValue {
-            defaults.set(value.legacyTriggerMode.rawValue, forKey: "triggerMode")
-        }
+        value.persist(defaults: defaults)
         return value
     }
 
-    /// Defensive decoding seam for preferences written by older or corrupted builds.
-    static func sanitizedHoldModifiers(_ storedValue: Any?) -> HotKeyModifiers {
-        guard let number = storedValue as? NSNumber else { return Self.defaults.holdModifiers }
-        let signed = number.int64Value
-        guard signed >= 0, signed <= Int64(UInt32.max) else { return Self.defaults.holdModifiers }
-        let raw = UInt32(signed)
-        let knownMask = HotKeyModifiers.command.rawValue
-            | HotKeyModifiers.option.rawValue
-            | HotKeyModifiers.control.rawValue
-            | HotKeyModifiers.shift.rawValue
-        guard raw != 0, raw & ~knownMask == 0 else { return Self.defaults.holdModifiers }
-        return HotKeyModifiers(rawValue: raw)
+    static func migratedMode(from rawValue: String?) -> HoverActivationMode {
+        switch rawValue {
+        case HoverActivationMode.off.rawValue:
+            return .off
+        case HoverActivationMode.toggleHover.rawValue, "dwell", "continuous", "always":
+            return .toggleHover
+        case HoverActivationMode.pressToScan.rawValue, "hold", "option":
+            return .pressToScan
+        default:
+            return Self.defaults.mode
+        }
     }
 
     func persist(defaults: UserDefaults = .standard) {
         let prefix = "activation."
         defaults.set(mode.rawValue, forKey: prefix + "mode")
-        defaults.set(dwellMilliseconds, forKey: prefix + "dwellMilliseconds")
-        defaults.set(Int(holdModifiers.rawValue), forKey: prefix + "holdModifiers")
-        defaults.set(responsiveness.rawValue, forKey: prefix + "responsiveness")
         defaults.set(scanFeedbackEnabled, forKey: prefix + "scanFeedbackEnabled")
-        defaults.set(legacyTriggerMode.rawValue, forKey: "triggerMode")
-    }
-}
-
-extension HotKeyModifiers {
-    var readableName: String {
-        var names: [String] = []
-        if contains(.control) { names.append("Control") }
-        if contains(.option) { names.append("Option") }
-        if contains(.shift) { names.append("Shift") }
-        if contains(.command) { names.append("Command") }
-        return names.isEmpty ? "a modifier" : names.joined(separator: " + ")
+        defaults.set(legacyMode.rawValue, forKey: "triggerMode")
     }
 }
 

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.1-0A84FF?style=flat-square" alt="Latest release 0.3.1"></a>
+  <a href="https://github.com/markus-barta/glint/releases/latest"><img src="https://img.shields.io/badge/release-0.3.2-0A84FF?style=flat-square" alt="Latest release 0.3.2"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -34,16 +34,20 @@ GLINT watches a small area around the pointer, recognizes ticket keys and number
 
 | Invoke anywhere | Keep context nearby | Navigate without friction |
 | --- | --- | --- |
-| **Inspect** performs exactly one scan beneath the pointer. Optional hover activation can wait for a dwell, require chosen modifiers, or run continuously. | **Pin** turns the result into a movable card with a remembered screen position. Use the handle to place it where it belongs. | Scroll through results, Shift-scroll through projects, type a number to jump tickets, or fuzzy-type a project—even with a typo. |
+| The **activation shortcut** can stay off, toggle hover scanning, or scan once when pressed. Toggled hover scans each newly settled pointer location once—never in a timer loop. | **Pin** turns the result into a movable card with a remembered screen position. Use the handle to place it where it belongs. | Scroll through results, Shift-scroll through projects, type a number to jump tickets, or fuzzy-type a project—even with a typo. |
 
 The small scan cue shows where GLINT is looking, outlines recognized IDs, and confirms the selected ticket. It never steals focus and respects Reduce Motion.
 
 ## Your shortcuts. Your card.
 
-Activation and presentation are independent on purpose. Record any safe global shortcut, choose exactly when pointer-only scanning should happen, and tune how much information the card shows. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
+Activation and presentation are independent on purpose. Record any safe global shortcut, choose Off, Toggle Hover, or Press to Scan, and tune how much information the card shows. The menu bar icon shows when hover is active and confirms when it finds a ticket. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
+
+| Hover off | Hover on | Ticket found |
+| --- | --- | --- |
+| <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed GLINT menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
 
 <p align="center">
-  <img src="docs/screenshots/settings-showcase-0.3.1.png" alt="GLINT activation and card appearance settings" width="100%">
+  <img src="docs/screenshots/settings-showcase-0.3.2.png" alt="GLINT activation and card appearance settings" width="100%">
 </p>
 
 GLINT can show zero to five alternative destinations and offers four text sizes, three widths, three content densities, and system or solid surfaces. Cards measure their content rather than forcing every ticket into the same height.
@@ -73,7 +77,7 @@ Those tools may contact their configured services using your existing credential
 
 ## Install
 
-1. Download [`Glint-0.3.1.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.1/Glint-0.3.1.zip).
+1. Download [`Glint-0.3.2.zip`](https://github.com/markus-barta/glint/releases/download/v0.3.2/Glint-0.3.2.zip).
 2. Move `Glint.app` to `~/Applications` or `/Applications`.
 3. Open GLINT and grant Screen Recording when macOS asks.
 4. Make sure `paimos` and/or `gh` are authenticated for the sources you use.
@@ -82,7 +86,7 @@ Default commands:
 
 | Command | Shortcut | Behavior |
 | --- | --- | --- |
-| Inspect | `⌥Space` | Scan once at the pointer and show a temporary card. |
+| Activation | `⌥Space` | Follow the selected behavior; Press to Scan is the default. |
 | Pin / direct open | `⇧⌥Space` | Open pinned, pin the temporary card, focus it, or close it. |
 
 Both shortcuts are fully configurable. Native recorder controls reject unsafe plain-letter globals and report conflicts directly in Settings.
