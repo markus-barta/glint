@@ -64,7 +64,12 @@ import SwiftUI
         }
     }
     @Published var presentationPreferences: PresentationPreferences { didSet { presentationPreferences.persist() } }
-    @Published var popupInteractionPreferences: PopupInteractionPreferences { didSet { popupInteractionPreferences.persist() } }
+    @Published var popupInteractionPreferences: PopupInteractionPreferences {
+        didSet {
+            popupInteractionPreferences.persist()
+            coordinator?.popupInteractionPreferencesDidChange()
+        }
+    }
     @Published var inspectHotKey: HotKey? { didSet { NuncidPreferences.save(inspectHotKey, key: "inspectHotKey"); configureHotKeys() } }
     @Published var pinHotKey: HotKey? { didSet { NuncidPreferences.save(pinHotKey, key: "pinHotKey"); configureHotKeys() } }
     @Published var hotKeyError: String?
@@ -337,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var probeOverlay: OverlayController?
     private var probeScanFeedback: [ScanFeedbackController] = []
     private var probeScanBackdrop: NSWindow?
+    private var probeLookupWindow: NSWindow?
 #endif
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--self-test") { SelfTests.runAndExit() }
@@ -362,6 +368,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 #if DEBUG
         if CommandLine.arguments.contains("--scan-feedback-probe") {
             Task { @MainActor [weak self] in self?.showScanFeedbackProbe() }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--lookup-highlight-capture-probe"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            Task { @MainActor [weak self] in self?.captureLookupHighlightProbe(to: url) }
         }
         if CommandLine.arguments.contains("--overlay-probe") || CommandLine.arguments.contains("--overlay-stress-probe") {
             let overlay = OverlayController(allowsCapture: true)
@@ -432,9 +443,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 #if DEBUG
     @MainActor
+    private func captureLookupHighlightProbe(to url: URL) {
+        let size = LookupHighlightReleaseProbe.canvasSize
+        let window = NSWindow(
+            contentRect: CGRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.level = .floating
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.sharingType = .readOnly
+        let hostingView = NSHostingView(rootView: LookupHighlightReleaseProbe())
+        hostingView.frame = CGRect(origin: .zero, size: size)
+        window.contentView = hostingView
+        window.center()
+        window.orderFrontRegardless()
+        probeLookupWindow = window
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let view = self?.probeLookupWindow?.contentView else { return }
+            view.layoutSubtreeIfNeeded()
+            guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: representation)
+            guard let data = representation.representation(using: .png, properties: [:]) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    @MainActor
     private func showScanFeedbackProbe() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let size = CGSize(width: min(860, screen.visibleFrame.width - 40), height: 260)
+        let size = CGSize(width: min(1120, screen.visibleFrame.width - 40), height: 280)
         let frame = CGRect(
             x: screen.visibleFrame.midX - size.width / 2,
             y: screen.visibleFrame.midY - size.height / 2,
@@ -459,18 +500,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The debug anchors deliberately sit on the visible ticket glyphs so the
         // probe exercises the same spatial relationship as live OCR feedback.
-        let centerY = frame.minY + 68
+        let centerY = frame.minY + 74
         let invoked = ScanFeedbackController(allowsCapture: true)
-        invoked.showDebugInvoked(at: CGPoint(x: frame.minX + frame.width / 6, y: centerY))
+        invoked.showDebugInvoked(at: CGPoint(x: frame.minX + frame.width / 8, y: centerY))
 
         let recognized = ScanFeedbackController(allowsCapture: true)
         let recognizedPrimary = ScanFeedbackAnchor(
             literal: "NUNCID-29",
-            bounds: CGRect(x: frame.midX - 94, y: centerY - 10, width: 94, height: 22)
+            bounds: CGRect(x: frame.minX + frame.width * 3 / 8 - 92, y: centerY - 10, width: 94, height: 22)
         )
         let recognizedAlternate = ScanFeedbackAnchor(
             literal: "#184",
-            bounds: CGRect(x: frame.midX + 24, y: centerY - 10, width: 52, height: 22)
+            bounds: CGRect(x: frame.minX + frame.width * 3 / 8 + 22, y: centerY - 10, width: 52, height: 22)
         )
         recognized.showDebugRecognized(
             anchors: [recognizedPrimary, recognizedAlternate],
@@ -480,9 +521,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let resolved = ScanFeedbackController(allowsCapture: true)
         resolved.showDebugResolved(anchor: ScanFeedbackAnchor(
             literal: "NUNCID-29",
-            bounds: CGRect(x: frame.maxX - frame.width / 6 - 42, y: centerY - 10, width: 84, height: 22)
+            bounds: CGRect(x: frame.minX + frame.width * 5 / 8 - 42, y: centerY - 10, width: 84, height: 22)
         ))
-        probeScanFeedback = [invoked, recognized, resolved]
+
+        let lookup = ScanFeedbackController(allowsCapture: true)
+        let lookupPrimary = ScanFeedbackAnchor(
+            literal: "NUNCID-52",
+            bounds: CGRect(x: frame.minX + frame.width * 7 / 8 - 96, y: centerY - 10, width: 94, height: 22)
+        )
+        let lookupAlternate = ScanFeedbackAnchor(
+            literal: "HAUSV-38",
+            bounds: CGRect(x: frame.minX + frame.width * 7 / 8 + 18, y: centerY - 10, width: 88, height: 22)
+        )
+        lookup.highlight(
+            anchors: [lookupPrimary, lookupAlternate],
+            selected: lookupPrimary,
+            showAll: true,
+            animateFound: true
+        )
+        probeScanFeedback = [invoked, recognized, resolved, lookup]
     }
 #endif
 }
@@ -496,7 +553,9 @@ private struct ScanFeedbackProbeBackdrop: View {
                 Divider().padding(.vertical, 22)
                 phase("2", "RECOGNIZED", "Candidate anchors", ticket: "NUNCID-29     #184")
                 Divider().padding(.vertical, 22)
-                phase("3", "RESOLVED", "Confirmed ticket", ticket: "NUNCID-29")
+                phase("3", "FOUND", "Confirmed ticket", ticket: "NUNCID-29")
+                Divider().padding(.vertical, 22)
+                phase("4", "PERSISTENT", "Follows the card", ticket: "NUNCID-52     HAUSV-38")
             }
             Text("DEBUG VISUAL PROBE · release scan feedback remains capture-excluded")
                 .font(.caption2.monospaced().weight(.medium))
@@ -762,8 +821,8 @@ struct SettingsView: View {
                 Divider()
                 Toggle(isOn: $state.activationPreferences.scanFeedbackEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Show scan feedback").fontWeight(.medium)
-                        Text("Briefly marks where Nuncid is looking when a scan starts.").font(.caption).foregroundStyle(.secondary)
+                        Text("Show scan start cue").fontWeight(.medium)
+                        Text("Briefly marks where a scan begins. Lookup markers stay visible with their cards.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .toggleStyle(.switch)
@@ -778,7 +837,7 @@ struct SettingsView: View {
                     if state.activationPreferences.mode == .toggleHover {
                         setupRow("Hover", state.hoverScanningEnabled ? (state.hoverMatchFound ? "On · ticket found" : "On") : "Off")
                     }
-                    setupRow("Scan feedback", state.activationPreferences.scanFeedbackEnabled ? "On" : "Off")
+                    setupRow("Scan start cue", state.activationPreferences.scanFeedbackEnabled ? "On" : "Off")
                 }
                 Spacer()
             }
@@ -820,6 +879,15 @@ struct SettingsView: View {
                     }
                     .labelsHidden().pickerStyle(.menu).frame(width: 150)
                 }
+                Divider()
+                Toggle(isOn: $state.popupInteractionPreferences.showAllDetectedIDsWhenPinned) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show all detected IDs").fontWeight(.medium)
+                        Text("While pinned, keep every ID from the scan marked on screen. The selected result stands out.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
             }
             HStack {
                 Text("Drag or resize from any edge. Nuncid remembers the card’s position, size, and pin state.").font(.caption).foregroundStyle(.secondary)

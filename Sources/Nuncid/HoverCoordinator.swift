@@ -28,10 +28,12 @@ enum ScanCuePolicy {
 
     static func terminal(
         for source: ScanInvocationSource,
-        hasResolvedResult: Bool,
-        hasAnchor: Bool
+        hasResolvedResult: Bool
     ) -> ScanTerminalFeedback {
-        if hasResolvedResult { return hasAnchor ? .resolved : .none }
+        // Successful scans transition directly from recognized candidates to
+        // the persistent lock-on. A second terminal panel would be replaced
+        // in the same run-loop turn and never become visible.
+        if hasResolvedResult { return .none }
         return source == .explicitCommand ? .noMatch : .none
     }
 }
@@ -75,6 +77,67 @@ enum PinnedScanOwnershipPolicy {
     }
 }
 
+struct LookupSourceSnapshot: Equatable {
+    let processIdentifier: pid_t
+    let windowIdentifier: CGWindowID?
+    let windowBounds: CGRect?
+    let windowTitle: String?
+
+    static func capture() -> LookupSourceSnapshot? {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+        let processIdentifier = application.processIdentifier
+        let window = windowInfo(for: processIdentifier)
+        return LookupSourceSnapshot(
+            processIdentifier: processIdentifier,
+            windowIdentifier: (window?[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+            windowBounds: window.flatMap(windowBounds(from:)),
+            windowTitle: (window?[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private static func windowInfo(for processIdentifier: pid_t) -> [String: Any]? {
+        (CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]])?.first {
+            ($0[kCGWindowOwnerPID as String] as? pid_t) == processIdentifier
+                && ($0[kCGWindowLayer as String] as? Int) == 0
+        }
+    }
+
+    private static func windowBounds(from info: [String: Any]) -> CGRect? {
+        guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+              let x = bounds["X"] as? NSNumber,
+              let y = bounds["Y"] as? NSNumber,
+              let width = bounds["Width"] as? NSNumber,
+              let height = bounds["Height"] as? NSNumber else { return nil }
+        return CGRect(
+            x: x.doubleValue,
+            y: y.doubleValue,
+            width: width.doubleValue,
+            height: height.doubleValue
+        )
+    }
+}
+
+enum LookupSourceLifecyclePolicy {
+    static let validationInterval: TimeInterval = 0.25
+
+    static func remainsValid(
+        scanned: LookupSourceSnapshot?,
+        current: LookupSourceSnapshot?
+    ) -> Bool {
+        guard let scanned else { return false }
+        return scanned == current
+    }
+}
+
+enum LookupHighlightVisibilityPolicy {
+    static func shouldShow(popupVisible: Bool, mappedAnchorAvailable: Bool) -> Bool {
+        popupVisible && mappedAnchorAvailable
+    }
+}
+
 @MainActor final class HoverCoordinator {
     private enum Presentation { case temporary, pinned }
 
@@ -112,6 +175,10 @@ enum PinnedScanOwnershipPolicy {
     }
     private var manualInspection: ManualInspectionState?
     private var temporaryHideDeadline: Date?
+    private var detectedAnchors: [ScanFeedbackAnchor] = []
+    private var lookupAnchorByLineID: [String: ScanFeedbackAnchor] = [:]
+    private var lookupSourceSnapshot: LookupSourceSnapshot?
+    private var lastLookupSourceValidationAt = Date.distantPast
 
     init(appState: AppState) {
         self.appState = appState
@@ -124,7 +191,13 @@ enum PinnedScanOwnershipPolicy {
         overlay.onCycleProject = { [weak self] direction in self?.cycleProject(direction) }
         overlay.onClose = { [weak self] in self?.closePinned() }
         overlay.onInput = { [weak self] event in self?.handleInput(event) }
-        overlay.onSelectionChange = { [weak self] _ in self?.syncSelectionContext() }
+        overlay.onSelectionChange = { [weak self] line in
+            self?.syncSelectionContext()
+            self?.refreshLookupHighlight(selecting: line)
+        }
+        overlay.onExternalContentMayMove = { [weak self] in
+            self?.invalidateLookupSource()
+        }
         overlay.onTogglePin = { [weak self] in self?.togglePinFromOverlay() }
         overlay.onPinStateChange = { [weak self] pinned in
             guard let self, var preferences = self.appState?.popupInteractionPreferences,
@@ -150,6 +223,11 @@ enum PinnedScanOwnershipPolicy {
 
     func clearCache() { Task { await resolver.clearCache() } }
 
+    func popupInteractionPreferencesDidChange() {
+        guard overlay.isVisible else { return }
+        refreshLookupHighlight()
+    }
+
     func setHoverScanningEnabled(_ enabled: Bool) {
         resetHoverActivation()
         appState?.activity = enabled ? "Hover on" : "Hover off"
@@ -165,7 +243,7 @@ enum PinnedScanOwnershipPolicy {
         stableSince = Date()
         temporaryHideDeadline = nil
         overlay.hide()
-        scanFeedback.cancel()
+        clearLookupHighlight()
         appState?.setHoverMatchFound(false)
         appState?.activity = "Ready"
     }
@@ -181,6 +259,7 @@ enum PinnedScanOwnershipPolicy {
             scanGeneration += 1
             activeScanTask?.cancel()
             let position = NSEvent.mouseLocation
+            clearLookupHighlight()
             let showsFeedback = appState?.activationPreferences.scanFeedbackEnabled == true
             if showsFeedback { scanFeedback.invoked(at: position) }
             pendingManualScan = PendingManualScan(
@@ -220,6 +299,7 @@ enum PinnedScanOwnershipPolicy {
             beginPinnedScanOwnership()
             overlay.pin(shortcutLabel: pinShortcutLabel)
             syncSelectionContext()
+            refreshLookupHighlight()
             appState?.activity = "Pinned"
             return
         case .openPinned:
@@ -267,13 +347,14 @@ enum PinnedScanOwnershipPolicy {
                     activeScanTask?.cancel()
                     pendingManualScan = nil
                     clearManualInspection()
-                    scanFeedback.cancel()
+                    clearLookupHighlight()
                     if !overlay.isSticky { overlay.hide() }
                     appState?.activity = overlay.isSticky ? "Pinned navigator" : "Ready"
                 }
             }
             lastPermissionPollAt = Date()
         }
+        validateLookupSourceIfNeeded()
         if overlay.isSticky {
             // Sticky presentation owns its own local Escape handling and must
             // never inherit the temporary card's movement/lifetime state.
@@ -338,7 +419,7 @@ enum PinnedScanOwnershipPolicy {
             hoverScannedPosition = nil
             stableSince = now
             overlay.hide()
-            scanFeedback.cancel()
+            clearLookupHighlight()
             appState?.activity = "Ready"
         }
         if moved {
@@ -379,9 +460,11 @@ enum PinnedScanOwnershipPolicy {
         let startedDirectGeneration = directGeneration
         let startedEditGeneration = pinnedEditGeneration
         if presentation == .pinned { pinnedInputClaimedCurrentScan = false }
+        clearLookupHighlight()
         // Capture once per accepted scan (never on the 20 Hz pointer timer). Keeping this
         // uncached preserves the foreground window title that belongs to this invocation.
         let foreground = ForegroundApplicationContext.capture()
+        let lookupSource = LookupSourceSnapshot.capture()
         if presentation == .temporary, !requiresStablePointer {
             manualInspection = ManualInspectionState(anchor: position, startedAt: Date())
             lastPosition = position
@@ -443,15 +526,10 @@ enum PinnedScanOwnershipPolicy {
                     startedGeneration: generation,
                     currentGeneration: scanGeneration
                 ) else { return }
-                let resultAnchor = resolved.first.flatMap { anchorsBySourceOrder[$0.proposal.sourceOrder] ?? selectedAnchor }
                 switch ScanCuePolicy.terminal(
                     for: source,
-                    hasResolvedResult: !resolved.isEmpty,
-                    hasAnchor: resultAnchor != nil
+                    hasResolvedResult: !resolved.isEmpty
                 ) {
-                case .resolved:
-                    guard let anchor = resultAnchor else { break }
-                    scanFeedback.resolved(anchor: anchor)
                 case .noMatch:
                     scanFeedback.noMatch()
                 case .none:
@@ -469,10 +547,19 @@ enum PinnedScanOwnershipPolicy {
                         currentEditGeneration: pinnedEditGeneration
                       ) else { return }
                 if lines.isEmpty {
+                    clearLookupHighlight()
                     overlay.showPinnedStatus(tokens.isEmpty ? "No nearby ticket token" : "No real ticket match")
                     appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
                 } else {
                     overlay.replacePinnedResults(lines); syncSelectionContext()
+                    installLookupAnchors(
+                        resolved: resolved,
+                        allAnchors: anchorPairs.map(\.1),
+                        anchorsBySourceOrder: anchorsBySourceOrder,
+                        fallback: selectedAnchor,
+                        source: lookupSource
+                    )
+                    refreshLookupHighlight(animateFound: true)
                     appState?.activity = lines.first?.title ?? "Pinned"
                 }
                 return
@@ -480,11 +567,20 @@ enum PinnedScanOwnershipPolicy {
             guard !overlay.isSticky,
                   (!requiresStablePointer || hypot(NSEvent.mouseLocation.x - position.x, NSEvent.mouseLocation.y - position.y) <= 4) else { return }
             if lines.isEmpty {
+                clearLookupHighlight()
                 if source == .automaticHover { appState?.setHoverMatchFound(false) }
                 overlay.hide(); clearManualInspection(); appState?.activity = tokens.isEmpty ? "No nearby ticket token" : "No match"
             } else {
                 if source == .automaticHover { appState?.setHoverMatchFound(true) }
                 overlay.show(lines, near: position, shortcutLabel: pinShortcutLabel)
+                installLookupAnchors(
+                    resolved: resolved,
+                    allAnchors: anchorPairs.map(\.1),
+                    anchorsBySourceOrder: anchorsBySourceOrder,
+                    fallback: selectedAnchor,
+                    source: lookupSource
+                )
+                refreshLookupHighlight(animateFound: true)
                 temporaryHideDeadline = nil
                 appState?.activity = lines.first?.title ?? "Ready"
             }
@@ -535,6 +631,7 @@ enum PinnedScanOwnershipPolicy {
         if overlay.isSticky {
             resetEditing()
             overlay.unpin()
+            refreshLookupHighlight()
             clearManualInspection()
             temporaryHideDeadline = nil
             lastPosition = NSEvent.mouseLocation
@@ -547,6 +644,7 @@ enum PinnedScanOwnershipPolicy {
         temporaryHideDeadline = nil
         overlay.pin(shortcutLabel: pinShortcutLabel)
         syncSelectionContext()
+        refreshLookupHighlight()
         appState?.activity = "Pinned"
     }
 
@@ -723,7 +821,7 @@ enum PinnedScanOwnershipPolicy {
         scanGeneration += 1
         activeScanTask?.cancel()
         pendingManualScan = nil
-        scanFeedback.cancel()
+        clearLookupHighlight()
         appState?.activity = "Pinned · editing"
     }
 
@@ -735,7 +833,7 @@ enum PinnedScanOwnershipPolicy {
     private func closePinned() {
         clearManualInspection()
         pendingManualScan = nil
-        scanGeneration += 1; activeScanTask?.cancel(); directGeneration += 1; resetEditing(); overlay.closePinned(); scanFeedback.cancel()
+        scanGeneration += 1; activeScanTask?.cancel(); directGeneration += 1; resetEditing(); overlay.closePinned(); clearLookupHighlight()
         lastPosition = NSEvent.mouseLocation; stableSince = Date(); hoverScannedPosition = nil; appState?.setHoverMatchFound(false); appState?.activity = "Ready"
     }
 
@@ -750,7 +848,7 @@ enum PinnedScanOwnershipPolicy {
         pendingManualScan = nil
         overlay.hide()
         temporaryHideDeadline = nil
-        scanFeedback.cancel()
+        clearLookupHighlight()
         appState?.activity = "Ready"
         lastPosition = NSEvent.mouseLocation
         stableSince = Date()
@@ -761,7 +859,7 @@ enum PinnedScanOwnershipPolicy {
     private func invalidateForPointerMovement(at position: CGPoint) {
         scanGeneration += 1
         activeScanTask?.cancel()
-        scanFeedback.cancel()
+        clearLookupHighlight()
         if let pending = pendingManualScan,
            QueuedScanLifecyclePolicy.shouldRetargetAfterPointerMovement(source: pending.source) {
             let showsFeedback = appState?.activationPreferences.scanFeedbackEnabled == true
@@ -784,6 +882,81 @@ enum PinnedScanOwnershipPolicy {
         overlay.hide()
         temporaryHideDeadline = nil
         appState?.activity = "Ready"
+    }
+
+    private func installLookupAnchors(
+        resolved: [ResolvedCandidate],
+        allAnchors: [ScanFeedbackAnchor],
+        anchorsBySourceOrder: [Int: ScanFeedbackAnchor],
+        fallback: ScanFeedbackAnchor?,
+        source: LookupSourceSnapshot?
+    ) {
+        guard LookupSourceLifecyclePolicy.remainsValid(
+            scanned: source,
+            current: LookupSourceSnapshot.capture()
+        ) else {
+            clearLookupHighlight()
+            return
+        }
+        detectedAnchors = allAnchors
+        lookupSourceSnapshot = source
+        lastLookupSourceValidationAt = Date()
+        lookupAnchorByLineID = resolved.reduce(into: [:]) { result, candidate in
+            guard result[candidate.line.id] == nil,
+                  let anchor = anchorsBySourceOrder[candidate.proposal.sourceOrder] else { return }
+            result[candidate.line.id] = anchor
+        }
+        if let first = resolved.first, lookupAnchorByLineID[first.line.id] == nil, let fallback {
+            lookupAnchorByLineID[first.line.id] = fallback
+        }
+    }
+
+    private func refreshLookupHighlight(
+        selecting line: TicketLine? = nil,
+        animateFound: Bool = false
+    ) {
+        let selectedLine = line ?? overlay.selectedLine
+        let selectedAnchor = selectedLine.flatMap { lookupAnchorByLineID[$0.id] }
+        guard LookupHighlightVisibilityPolicy.shouldShow(
+            popupVisible: overlay.isVisible,
+            mappedAnchorAvailable: selectedAnchor != nil
+        ), let selectedAnchor else {
+            scanFeedback.cancel()
+            return
+        }
+        let showAll = overlay.isSticky && (appState?.popupInteractionPreferences.showAllDetectedIDsWhenPinned == true)
+        scanFeedback.highlight(
+            anchors: detectedAnchors,
+            selected: selectedAnchor,
+            showAll: showAll,
+            animateFound: animateFound
+        )
+    }
+
+    private func clearLookupHighlight() {
+        detectedAnchors = []
+        lookupAnchorByLineID = [:]
+        lookupSourceSnapshot = nil
+        scanFeedback.cancel()
+    }
+
+    private func invalidateLookupSource() {
+        guard lookupSourceSnapshot != nil else { return }
+        clearLookupHighlight()
+    }
+
+    private func validateLookupSourceIfNeeded() {
+        guard let lookupSourceSnapshot,
+              Date().timeIntervalSince(lastLookupSourceValidationAt)
+                >= LookupSourceLifecyclePolicy.validationInterval else { return }
+        lastLookupSourceValidationAt = Date()
+        guard LookupSourceLifecyclePolicy.remainsValid(
+            scanned: lookupSourceSnapshot,
+            current: LookupSourceSnapshot.capture()
+        ) else {
+            invalidateLookupSource()
+            return
+        }
     }
 
     private static func projectAndNumber(from key: String) -> (String, Int)? {

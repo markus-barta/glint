@@ -28,12 +28,14 @@ capture_probe() {
 }
 
 capture_probe pinned-card --overlay-probe --overlay-stress-probe --overlay-capture-probe
+capture_probe lookup-highlight --lookup-highlight-capture-probe
 capture_probe settings-scanning --settings-capture-probe
+capture_probe settings-pinned --settings-pinned-probe --settings-capture-probe
 capture_probe settings-appearance --settings-appearance-probe --settings-capture-probe
 capture_probe version-history --version-history-probe --version-history-capture-probe
 capture_probe version-history-dark --version-history-probe --version-history-dark-probe --version-history-capture-probe
 
-for stem in pinned-card settings-scanning settings-appearance version-history version-history-dark; do
+for stem in pinned-card lookup-highlight settings-scanning settings-pinned settings-appearance version-history version-history-dark; do
   mv "$capture_dir/$stem-$version.png" "$screenshots/$stem-$version.png"
 done
 print -r -- "Captured Nuncid $version release visuals"

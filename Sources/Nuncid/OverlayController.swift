@@ -885,6 +885,7 @@ private struct OverlayRootView: View {
     var onClose: (() -> Void)?
     var onInput: ((PinnedInputEvent) -> Void)?
     var onSelectionChange: ((TicketLine) -> Void)?
+    var onExternalContentMayMove: (() -> Void)?
     var onTogglePin: (() -> Void)?
     var onPinStateChange: ((Bool) -> Void)?
     var onPresentationPreferencesChange: ((PresentationPreferences) -> Void)?
@@ -1153,8 +1154,9 @@ private struct OverlayRootView: View {
 
     private func handleGlobalScroll(_ event: NSEvent) {
         guard panel.isVisible,
-              !panel.frame.contains(NSEvent.mouseLocation),
-              interactionPreferences.scrollModifier.matches(event.modifierFlags) else { return }
+              !panel.frame.contains(NSEvent.mouseLocation) else { return }
+        onExternalContentMayMove?()
+        guard interactionPreferences.scrollModifier.matches(event.modifierFlags) else { return }
         navigateScroll(delta: event.scrollingDeltaY, shiftingProject: false)
     }
 

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-30
+
+- Keep the active lookup highlighted beside its source, with an optional pinned view for every detected ID.
+- Follow result navigation with a persistent, capture-excluded marker that clears before source movement can make it stale.
+- Add a concise pinned-card setting for showing all detected IDs with consistent readable spacing and hierarchy.
+- Turn recognition into a polished one-time lock-on sweep and confirmation pulse, with a calm Reduce Motion alternative.
+
 ## [1.0.0] - 2026-08-30
 
 - Route every new install through the current verified release and explain the real first-launch security path.

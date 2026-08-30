@@ -59,7 +59,7 @@ enum ScanAnchorPolicy {
     }
 }
 
-enum ScanTerminalFeedback: Equatable { case resolved, noMatch, none }
+enum ScanTerminalFeedback: Equatable { case noMatch, none }
 
 enum ResolutionLookupPolicy {
     static let maximumConcurrentLookups = 4

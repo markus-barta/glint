@@ -73,7 +73,7 @@ if ! grep -q "release-$next-" "$task_readme" || ! grep -q "Latest release $next"
   print -u2 "Could not update the README release badge to $next"
   exit 1
 fi
-for stem in hero workflow settings-showcase version-history; do
+for stem in hero workflow lookup-highlight settings-showcase version-history; do
   if ! grep -q "docs/screenshots/$stem-$next.png" "$task_readme"; then
     print -u2 "Could not update the README $stem image to $next"
     exit 1
