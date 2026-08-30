@@ -39,7 +39,14 @@ enum NuncidBrand {
         return result
     }
     static var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+#if DEBUG
+        if let sourceVersion = try? String(contentsOfFile: "VERSION", encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !sourceVersion.isEmpty {
+            return sourceVersion
+        }
+#endif
+        return Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? (try? String(contentsOfFile: "VERSION", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
             ?? "Development"
     }
@@ -57,6 +64,7 @@ enum NuncidBrand {
         }
     }
     @Published var presentationPreferences: PresentationPreferences { didSet { presentationPreferences.persist() } }
+    @Published var popupInteractionPreferences: PopupInteractionPreferences { didSet { popupInteractionPreferences.persist() } }
     @Published var inspectHotKey: HotKey? { didSet { NuncidPreferences.save(inspectHotKey, key: "inspectHotKey"); configureHotKeys() } }
     @Published var pinHotKey: HotKey? { didSet { NuncidPreferences.save(pinHotKey, key: "pinHotKey"); configureHotKeys() } }
     @Published var hotKeyError: String?
@@ -75,6 +83,7 @@ enum NuncidBrand {
         let preferences = NuncidPreferences.load()
         var activation = ActivationPreferences.load()
         var presentation = PresentationPreferences.load()
+        let popupInteraction = PopupInteractionPreferences.load()
 #if DEBUG
         if CommandLine.arguments.contains("--settings-toggle-hover-probe") ||
             CommandLine.arguments.contains("--menu-hover-inactive-probe") ||
@@ -94,6 +103,7 @@ enum NuncidBrand {
 #endif
         activationPreferences = activation
         presentationPreferences = presentation
+        popupInteractionPreferences = popupInteraction
         inspectHotKey = preferences.inspectHotKey
         pinHotKey = preferences.pinHotKey
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
@@ -356,20 +366,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--overlay-probe") || CommandLine.arguments.contains("--overlay-stress-probe") {
             let overlay = OverlayController(allowsCapture: true)
             let stress = CommandLine.arguments.contains("--overlay-stress-probe")
-            let lines: [TicketLine] = stress ? [
-                TicketLine(key: "NUNCID-29", state: "in-progress", title: "Deliver a migration-safe product rename without losing settings, permissions, or historical references", source: "ppm", metadata: "ticket · high priority · release 0.4", detail: "Nuncid replaces Glint as the product name while keeping the established bundle identity, local preferences, Screen Recording authorization, and every historical GLINT-* reference intact through explicit redirects and aliases."),
-                TicketLine(key: "NUNCID-28", state: "done", title: "Add a positive human-language version history", source: "ppm"),
+            let single = CommandLine.arguments.contains("--overlay-single-probe")
+            let minimumStress = CommandLine.arguments.contains("--overlay-minimum-stress-probe")
+            let lines: [TicketLine] = minimumStress ? [
+                TicketLine(key: "NUNCID-34", state: "in-progress", title: "Make a very small custom card adapt safely to unusually long real-world ticket content", source: "ppm", metadata: "ticket · high priority · release 0.5", detail: "This deliberately long detail verifies that extra-large detailed content remains inside the rounded popup surface even at the minimum remembered dimensions."),
+                TicketLine(key: "NUNCID-36", state: "done", title: "Navigate spatially", source: "ppm"),
+                TicketLine(key: "NUNCID-35", state: "done", title: "Open the source", source: "ppm")
+            ] : single ? [
+                TicketLine(key: "NUNCID-36", state: "in-progress", title: "Navigate results spatially", source: "ppm")
+            ] : stress ? [
+                TicketLine(key: "NUNCID-36", state: "in-progress", title: "Navigate results spatially from anywhere while the current ticket remains fixed and readable", source: "ppm", metadata: "ticket · high priority · release 0.5", detail: "Hold your chosen modifier and scroll from any app, or simply scroll inside the popup. Previous and next destinations move around a stable primary card so every step stays understandable."),
+                TicketLine(key: "NUNCID-35", state: "done", title: "Open the source and read every neighboring ID", source: "ppm"),
                 TicketLine(key: "#184", state: "review", title: "Keep GitHub pull requests visible", source: "gh"),
-                TicketLine(key: "PAI-608", state: "done", title: "Launch the ticket navigator", source: "ppm"),
-                TicketLine(key: "NUNCID-27", state: "done", title: "Replace repeating activation with clear shortcut modes", source: "ppm"),
-                TicketLine(key: "NUNCID-19", state: "done", title: "Show anchored scan feedback", source: "ppm")
+                TicketLine(key: "NUNCID-34", state: "done", title: "Remember a custom card size", source: "ppm"),
+                TicketLine(key: "NUNCID-33", state: "done", title: "Pin directly without racing the popup", source: "ppm"),
+                TicketLine(key: "NUNCID-37", state: "done", title: "Use F19 and other function keys as shortcuts", source: "ppm")
             ] : [
-                TicketLine(key: "NUNCID-29", state: "in-progress", title: "Deliver the Nuncid rename", source: "ppm", metadata: "ticket · high priority", detail: "The new name ships without losing established state or historical references."),
-                TicketLine(key: "NUNCID-28", state: "done", title: "Explain every release in positive human language", source: "ppm", metadata: "ticket · medium priority", detail: "Version History leads with what each improvement gives the user."),
-                TicketLine(key: "NUNCID-27", state: "done", title: "Make activation effortless", source: "ppm", metadata: "ticket · high priority", detail: "Choose Off, Toggle Hover, or Press to Scan.")
+                TicketLine(key: "NUNCID-36", state: "in-progress", title: "Navigate results spatially from anywhere", source: "ppm", metadata: "ticket · high priority", detail: "The current ticket stays fixed while previous and next destinations move around it."),
+                TicketLine(key: "NUNCID-35", state: "done", title: "Open the ticket source directly", source: "ppm", metadata: "ticket · medium priority", detail: "The source label is now a clear, quiet link."),
+                TicketLine(key: "NUNCID-33", state: "done", title: "Pin without racing the popup", source: "ppm", metadata: "ticket · high priority", detail: "Move into the card and pin it directly.")
             ]
             overlay.show(lines, near: NSEvent.mouseLocation, shortcutLabel: "⌥⇧Space")
-            overlay.pin(shortcutLabel: "⌥⇧Space")
+            if !CommandLine.arguments.contains("--overlay-temporary-probe") {
+                overlay.pin(shortcutLabel: "⌥⇧Space")
+            }
             probeOverlay = overlay
             if let index = CommandLine.arguments.firstIndex(of: "--overlay-capture-probe"),
                CommandLine.arguments.indices.contains(index + 1) {
@@ -504,16 +524,20 @@ private final class ShortcutRecorderButton: NSButton {
     }
     override func keyDown(with event: NSEvent) {
         guard recording else { return super.keyDown(with: event) }
-        if event.keyCode == 53 { cancelRecording(); window?.makeFirstResponder(nil); return }
-        if event.keyCode == 51 || event.keyCode == 117 { finish(nil, feedback: .success("Shortcut cleared.")); return }
         let candidate = HotKey(keyCode: UInt32(event.keyCode), modifiers: Self.modifiers(from: event.modifierFlags), keyLabel: Self.label(for: event))
-        guard candidate.isSafeGlobalShortcut else {
+        switch ShortcutCapturePolicy.decision(for: candidate, forbiddenHotKey: forbiddenHotKey) {
+        case .cancel:
+            cancelRecording()
+            window?.makeFirstResponder(nil)
+        case .clear:
+            finish(nil, feedback: .success("Shortcut cleared."))
+        case .rejectUnsafe:
             onFeedback?(.problem("Use ⌘, ⌥, or ⌃ with regular keys. Function keys may be used alone.")); NSSound.beep(); return
-        }
-        guard candidate != forbiddenHotKey else {
+        case .rejectDuplicate:
             onFeedback?(.problem("Inspect and Pin must use different shortcuts.")); NSSound.beep(); return
+        case .accept(let hotKey):
+            finish(hotKey, feedback: .success("Shortcut updated."))
         }
-        finish(candidate, feedback: .success("Shortcut updated."))
     }
     private func finish(_ value: HotKey?, feedback: PreferenceFeedback) {
         recording = false
@@ -541,7 +565,8 @@ private final class ShortcutRecorderButton: NSButton {
         return result
     }
     private static func label(for event: NSEvent) -> String {
-        let names: [UInt16: String] = [36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Esc", 76: "Enter", 115: "Home", 116: "Page Up", 117: "Forward Delete", 119: "End", 121: "Page Down", 123: "←", 124: "→", 125: "↓", 126: "↑", 122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"]
+        if let functionKey = HotKey.functionKeyLabel(for: UInt32(event.keyCode)) { return functionKey }
+        let names: [UInt16: String] = [36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Esc", 76: "Enter", 115: "Home", 116: "Page Up", 117: "Forward Delete", 119: "End", 121: "Page Down", 123: "←", 124: "→", 125: "↓", 126: "↑"]
         if let name = names[event.keyCode] { return name }
         return event.charactersIgnoringModifiers?.uppercased() ?? "Key \(event.keyCode)"
     }
@@ -756,9 +781,18 @@ struct SettingsView: View {
                     interactionHint("Return", "Resolve your entry")
                     interactionHint("Esc", "Revert or close")
                 }
+                Divider()
+                appearanceRow("Scroll from anywhere", detail: "Hold this modifier while a Nuncid popup is visible. Inside the popup, scroll normally.") {
+                    Picker("Global scroll modifier", selection: $state.popupInteractionPreferences.scrollModifier) {
+                        ForEach(PopupScrollModifier.allCases) { modifier in
+                            Text("\(modifier.symbol) \(modifier.title)").tag(modifier)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(width: 150)
+                }
             }
             HStack {
-                Text("Drag the handle at the top of a pinned card to place it on any screen.").font(.caption).foregroundStyle(.secondary)
+                Text("Drag or resize from any edge. Nuncid remembers the card’s position, size, and pin state.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Restore Shortcut Default") { state.resetPinHotKey(); recorderFeedback = .success("Pinned-card shortcut restored.") }
             }
@@ -771,16 +805,25 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity)
 
             SettingsCard {
-                appearanceRow("Alternative previews", detail: "Shows the next wheel destinations below the primary ticket.") {
+                appearanceRow("Visible neighbors", detail: "Shows prior and next wheel destinations around the fixed primary card.") {
                     HStack(spacing: 8) {
                         Text("\(state.presentationPreferences.alternativePreviews)").font(.body.monospacedDigit()).frame(width: 20)
-                        Stepper("Alternative previews", value: $state.presentationPreferences.alternativePreviews, in: 0...5).labelsHidden()
+                        Stepper("Visible neighbors", value: $state.presentationPreferences.alternativePreviews, in: 0...6).labelsHidden()
                     }
                 }
                 Divider()
                 presetPicker("Text size", selection: $state.presentationPreferences.textSize, values: CardTextSize.allCases)
                 Divider()
-                presetPicker("Card width", selection: $state.presentationPreferences.width, values: CardWidth.allCases)
+                VStack(alignment: .leading, spacing: 7) {
+                    presetPicker("Card size", selection: $state.presentationPreferences.width, values: CardWidth.allCases)
+                    if state.presentationPreferences.width == .custom {
+                        Text("Custom · \(Int(state.presentationPreferences.customWidth.rounded())) × \(Int(state.presentationPreferences.customHeight.rounded())) pt")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    } else {
+                        Text("Resize any popup from an edge or corner to create a remembered Custom size.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Divider()
                 presetPicker("Content", selection: $state.presentationPreferences.density, values: CardDensity.allCases)
                 Divider()

@@ -25,6 +25,24 @@ enum ManualInspectionPolicy {
     }
 }
 
+enum TemporaryOverlayLifetimePolicy {
+    static let exitGrace: TimeInterval = 1
+
+    static func shouldScheduleHide(
+        isVisible: Bool,
+        isPinned: Bool,
+        pointerInside: Bool,
+        movedFromLastPosition: Bool,
+        manualLifetimeExpired: Bool
+    ) -> Bool {
+        isVisible && !isPinned && !pointerInside && (movedFromLastPosition || manualLifetimeExpired)
+    }
+
+    static func shouldHide(deadline: Date?, now: Date, pointerInside: Bool) -> Bool {
+        !pointerInside && deadline.map { now >= $0 } == true
+    }
+}
+
 enum ScanAnchorPolicy {
     static let maximumAnchors = 3
 

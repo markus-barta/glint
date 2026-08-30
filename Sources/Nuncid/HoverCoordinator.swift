@@ -111,6 +111,7 @@ enum PinnedScanOwnershipPolicy {
         let startedAt: Date
     }
     private var manualInspection: ManualInspectionState?
+    private var temporaryHideDeadline: Date?
 
     init(appState: AppState) {
         self.appState = appState
@@ -123,9 +124,21 @@ enum PinnedScanOwnershipPolicy {
         overlay.onCycleProject = { [weak self] direction in self?.cycleProject(direction) }
         overlay.onInput = { [weak self] event in self?.handleInput(event) }
         overlay.onSelectionChange = { [weak self] _ in self?.syncSelectionContext() }
+        overlay.onTogglePin = { [weak self] in self?.togglePinFromOverlay() }
+        overlay.onPinStateChange = { [weak self] pinned in
+            guard let self, var preferences = self.appState?.popupInteractionPreferences,
+                  preferences.restorePinned != pinned else { return }
+            preferences.restorePinned = pinned
+            self.appState?.popupInteractionPreferences = preferences
+        }
+        overlay.onPresentationPreferencesChange = { [weak self] preferences in
+            guard let self, self.appState?.presentationPreferences != preferences else { return }
+            self.appState?.presentationPreferences = preferences
+        }
     }
 
     func start() {
+        overlay.restorePinnedIfNeeded(shortcutLabel: pinShortcutLabel)
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
@@ -146,6 +159,7 @@ enum PinnedScanOwnershipPolicy {
         hoverScannedPosition = nil
         lastPosition = NSEvent.mouseLocation
         stableSince = Date()
+        temporaryHideDeadline = nil
         overlay.hide()
         scanFeedback.cancel()
         appState?.setHoverMatchFound(false)
@@ -264,6 +278,38 @@ enum PinnedScanOwnershipPolicy {
         }
         let now = Date()
         let position = NSEvent.mouseLocation
+        let moved = hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4
+        let manualLifetimeExpired = manualInspection.map { now.timeIntervalSince($0.startedAt) >= ManualInspectionPolicy.lifetime } ?? false
+        if overlay.isVisible {
+            if overlay.containsPointer {
+                temporaryHideDeadline = nil
+                lastPosition = position
+                stableSince = now
+                return
+            }
+            if TemporaryOverlayLifetimePolicy.shouldHide(
+                deadline: temporaryHideDeadline,
+                now: now,
+                pointerInside: false
+            ) {
+                temporaryHideDeadline = nil
+                dismissManualInspection()
+                return
+            }
+            if temporaryHideDeadline != nil { return }
+            if TemporaryOverlayLifetimePolicy.shouldScheduleHide(
+                isVisible: true,
+                isPinned: false,
+                pointerInside: false,
+                movedFromLastPosition: moved,
+                manualLifetimeExpired: manualLifetimeExpired
+            ) {
+                temporaryHideDeadline = now.addingTimeInterval(TemporaryOverlayLifetimePolicy.exitGrace)
+                lastPosition = position
+                stableSince = now
+                return
+            }
+        }
         if let manualInspection {
             let distance = hypot(position.x - manualInspection.anchor.x, position.y - manualInspection.anchor.y)
             if pendingManualScan != nil,
@@ -291,7 +337,7 @@ enum PinnedScanOwnershipPolicy {
             scanFeedback.cancel()
             appState?.activity = "Ready"
         }
-        if hypot(position.x - lastPosition.x, position.y - lastPosition.y) > 4 {
+        if moved {
             invalidateForPointerMovement(at: position)
         }
 #if DEBUG
@@ -435,6 +481,7 @@ enum PinnedScanOwnershipPolicy {
             } else {
                 if source == .automaticHover { appState?.setHoverMatchFound(true) }
                 overlay.show(lines, near: position, shortcutLabel: pinShortcutLabel)
+                temporaryHideDeadline = nil
                 appState?.activity = lines.first?.title ?? "Ready"
             }
         }
@@ -479,6 +526,25 @@ enum PinnedScanOwnershipPolicy {
     }
 
     private var pinShortcutLabel: String { appState?.pinHotKey?.label ?? "Pin shortcut" }
+
+    private func togglePinFromOverlay() {
+        if overlay.isSticky {
+            resetEditing()
+            overlay.unpin()
+            clearManualInspection()
+            temporaryHideDeadline = nil
+            lastPosition = NSEvent.mouseLocation
+            stableSince = Date()
+            appState?.activity = overlay.selectedLine?.title ?? "Ready"
+            return
+        }
+        resetEditing()
+        beginPinnedScanOwnership()
+        temporaryHideDeadline = nil
+        overlay.pin(shortcutLabel: pinShortcutLabel)
+        syncSelectionContext()
+        appState?.activity = "Pinned"
+    }
 
     private func cycleProject(_ direction: Int) {
         syncSelectionContext()
@@ -679,6 +745,7 @@ enum PinnedScanOwnershipPolicy {
         activeScanTask?.cancel()
         pendingManualScan = nil
         overlay.hide()
+        temporaryHideDeadline = nil
         scanFeedback.cancel()
         appState?.activity = "Ready"
         lastPosition = NSEvent.mouseLocation
@@ -711,6 +778,7 @@ enum PinnedScanOwnershipPolicy {
         hoverScannedPosition = nil
         appState?.setHoverMatchFound(false)
         overlay.hide()
+        temporaryHideDeadline = nil
         appState?.activity = "Ready"
     }
 
@@ -750,7 +818,8 @@ enum PinnedScanOwnershipPolicy {
                 title: result.line.title,
                 source: result.line.source,
                 metadata: metadata,
-                detail: result.line.detail
+                detail: result.line.detail,
+                destination: result.line.destination
             )
         })
     }

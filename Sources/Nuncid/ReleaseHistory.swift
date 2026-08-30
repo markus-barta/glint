@@ -21,6 +21,22 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "0.5.0",
+            isoDate: "2026-08-30",
+            date: "30 August 2026",
+            theme: "Spatial navigation",
+            headline: "Keep your place while tickets move around you.",
+            intro: "Nuncid’s popup is now a calm, direct navigator: enter it without a race, pin or resize it in place, and browse nearby results from wherever you are working.",
+            items: [
+                ReleaseNoteItem(label: "Pin without chasing", detail: "The temporary card waits while you move into it, stays open under the pointer, and offers its own pin button; the pinned card can be unpinned just as directly."),
+                ReleaseNoteItem(label: "A card that fits", detail: "Resize from any edge or corner. Nuncid remembers the custom dimensions, position, and pin state, and Settings shows the saved Custom size."),
+                ReleaseNoteItem(label: "Know every scroll", detail: "Previous and next tickets move around a fixed primary card, with clearer IDs and animated spatial continuity."),
+                ReleaseNoteItem(label: "Navigate from anywhere", detail: "Hold your chosen modifier to browse while another app remains active, or scroll normally whenever the pointer is inside the popup."),
+                ReleaseNoteItem(label: "Open the real source", detail: "The quiet source label is now a direct link to its Paimos or GitHub record."),
+                ReleaseNoteItem(label: "Function keys welcome", detail: "Record F1 through F20—including F19—as standalone global shortcuts for activation or the pinned card.")
+            ]
+        ),
+        ReleaseNote(
             version: "0.4.0",
             isoDate: "2026-08-30",
             date: "30 August 2026",

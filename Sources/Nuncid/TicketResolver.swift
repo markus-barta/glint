@@ -19,6 +19,7 @@ private struct PullRequest: Decodable {
     let isDraft: Bool
     let reviewDecision: String?
     let author: Author?
+    let url: String?
 }
 private struct CacheEntry: Codable { let line: TicketLine?; let savedAt: Date }
 
@@ -167,13 +168,14 @@ actor TicketResolver {
             title: issue.title,
             source: tracker.rawValue,
             metadata: metadata,
-            detail: Self.excerpt(issue.description)
+            detail: Self.excerpt(issue.description),
+            destination: "\(tracker == .ppm ? "https://pm.barta.cm" : "https://paimos.agm.ng")/issues/\(issue.issueKey)"
         )
     }
 
     private func resolvePullRequest(number: Int, repo: String) async -> TicketLine? {
         guard let executable = Self.findExecutable(named: "gh"),
-              let data = await Self.run(executable, ["pr", "view", "\(number)", "--repo", repo, "--json", "author,body,isDraft,number,reviewDecision,state,title"]),
+              let data = await Self.run(executable, ["pr", "view", "\(number)", "--repo", repo, "--json", "author,body,isDraft,number,reviewDecision,state,title,url"]),
               let pr = try? JSONDecoder().decode(PullRequest.self, from: data) else { return nil }
         let metadata = [
             repo,
@@ -186,7 +188,8 @@ actor TicketResolver {
             title: pr.title,
             source: "gh",
             metadata: metadata,
-            detail: Self.excerpt(pr.body)
+            detail: Self.excerpt(pr.body),
+            destination: pr.url
         )
     }
 

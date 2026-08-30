@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-30
+
+- Make the popup a calm spatial navigator with direct pinning, remembered resizing, source links, global wheel control, and F1–F20 shortcuts.
+
 ## [0.4.0] - 2026-08-30
 
 - Meet Nuncid, the new migration-safe name for the same private macOS ticket-context companion.
