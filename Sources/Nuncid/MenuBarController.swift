@@ -242,14 +242,14 @@ enum CanonicalReleaseChecker {
     }
 }
 
-@MainActor private final class MenuBarActionTarget: NSObject {
+@MainActor final class MenuBarActionTarget: NSObject {
     let action: () -> Void
 
     init(_ action: @escaping () -> Void) {
         self.action = action
     }
 
-    @objc func perform(_ sender: Any?) { action() }
+    @objc func invoke(_ sender: Any?) { action() }
 }
 
 @MainActor final class NuncidStatusItemController: NSObject {
@@ -416,7 +416,7 @@ enum CanonicalReleaseChecker {
     ) -> NSMenuItem {
         let target = MenuBarActionTarget(action)
         menuActionTargets.append(target)
-        let item = NSMenuItem(title: title, action: #selector(MenuBarActionTarget.perform(_:)), keyEquivalent: keyEquivalent)
+        let item = NSMenuItem(title: title, action: #selector(MenuBarActionTarget.invoke(_:)), keyEquivalent: keyEquivalent)
         item.target = target
         menu.addItem(item)
         return item

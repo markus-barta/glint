@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import Foundation
 
 private final class SelfTestAsyncResult: @unchecked Sendable {
@@ -14,7 +15,7 @@ private final class SelfTestAsyncResult: @unchecked Sendable {
     }
 }
 
-enum SelfTests {
+@MainActor enum SelfTests {
     static func runAndExit() -> Never {
         let tokens = TokenParser.parse([
             "HAUSV-578 PAI-843 START-186 PHAROS-203 JANUS-455",
@@ -96,6 +97,20 @@ enum SelfTests {
         }
         guard MenuBarAccessibilityPolicy.openMenuActionName == "Open Nuncid menu" else {
             fputs("self-test failed: menu bar accessibility menu action\n", stderr)
+            exit(1)
+        }
+        var menuActionCount = 0
+        let menuActionTarget = MenuBarActionTarget { menuActionCount += 1 }
+        let menuActionItem = NSMenuItem(
+            title: "Dispatch probe",
+            action: #selector(MenuBarActionTarget.invoke(_:)),
+            keyEquivalent: ""
+        )
+        menuActionItem.target = menuActionTarget
+        guard NSStringFromSelector(menuActionItem.action!) == "invoke:",
+              NSApp.sendAction(menuActionItem.action!, to: menuActionItem.target, from: menuActionItem),
+              menuActionCount == 1 else {
+            fputs("self-test failed: menu item selector dispatches its retained action target\n", stderr)
             exit(1)
         }
         guard SemanticVersion("1.2.0") == SemanticVersion("1.2.0"),
