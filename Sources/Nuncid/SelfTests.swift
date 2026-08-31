@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import Foundation
 
 private final class SelfTestAsyncResult: @unchecked Sendable {
@@ -14,7 +15,7 @@ private final class SelfTestAsyncResult: @unchecked Sendable {
     }
 }
 
-enum SelfTests {
+@MainActor enum SelfTests {
     static func runAndExit() -> Never {
         let tokens = TokenParser.parse([
             "HAUSV-578 PAI-843 START-186 PHAROS-203 JANUS-455",
@@ -44,6 +45,157 @@ enum SelfTests {
               HoverMenuBarState.resolve(mode: .toggleHover, hoverEnabled: true, matchFound: true) == .matchFound,
               HoverMenuBarState.resolve(mode: .pressToScan, hoverEnabled: true, matchFound: true) == .inactive else {
             fputs("self-test failed: activation shortcut and menu bar state policy\n", stderr)
+            exit(1)
+        }
+        let emittedHoverStates = [
+            (false, false),
+            (true, false),
+            (true, true),
+            (true, false),
+        ].map { hoverEnabled, matchFound in
+            HoverMenuBarState.resolve(
+                mode: .toggleHover,
+                hoverEnabled: hoverEnabled,
+                matchFound: matchFound
+            )
+        }
+        guard emittedHoverStates == [.inactive, .active, .matchFound, .active] else {
+            fputs("self-test failed: emitted hover state drives the current menu bar icon\n", stderr)
+            exit(1)
+        }
+        var menuBarScanCount = 0
+        var menuBarOpenCount = 0
+        MenuBarClickRouter.route(
+            .left(controlKey: false),
+            scanOnce: { menuBarScanCount += 1 },
+            openMenu: { menuBarOpenCount += 1 }
+        )
+        guard menuBarScanCount == 1, menuBarOpenCount == 0,
+              MenuBarClickRoutingPolicy.action(for: .left(controlKey: false)) == .scanOnce else {
+            fputs("self-test failed: menu bar left click exactly-once routing\n", stderr)
+            exit(1)
+        }
+        MenuBarClickRouter.route(
+            .left(controlKey: true),
+            scanOnce: { menuBarScanCount += 1 },
+            openMenu: { menuBarOpenCount += 1 }
+        )
+        guard menuBarScanCount == 1, menuBarOpenCount == 1,
+              MenuBarClickRoutingPolicy.action(for: .left(controlKey: true)) == .openMenu else {
+            fputs("self-test failed: menu bar control-click zero-scan secondary routing\n", stderr)
+            exit(1)
+        }
+        MenuBarClickRouter.route(
+            .right,
+            scanOnce: { menuBarScanCount += 1 },
+            openMenu: { menuBarOpenCount += 1 }
+        )
+        guard menuBarScanCount == 1, menuBarOpenCount == 2,
+              MenuBarClickRoutingPolicy.action(for: .right) == .openMenu else {
+            fputs("self-test failed: menu bar right click zero-scan routing\n", stderr)
+            exit(1)
+        }
+        guard MenuBarAccessibilityPolicy.openMenuActionName == "Open Nuncid menu" else {
+            fputs("self-test failed: menu bar accessibility menu action\n", stderr)
+            exit(1)
+        }
+        var menuActionCount = 0
+        let menuActionTarget = MenuBarActionTarget { menuActionCount += 1 }
+        let menuActionItem = NSMenuItem(
+            title: "Dispatch probe",
+            action: #selector(MenuBarActionTarget.invoke(_:)),
+            keyEquivalent: ""
+        )
+        menuActionItem.target = menuActionTarget
+        guard NSStringFromSelector(menuActionItem.action!) == "invoke:",
+              NSApp.sendAction(menuActionItem.action!, to: menuActionItem.target, from: menuActionItem),
+              menuActionCount == 1 else {
+            fputs("self-test failed: menu item selector dispatches its retained action target\n", stderr)
+            exit(1)
+        }
+        guard SemanticVersion("1.2.0") == SemanticVersion("1.2.0"),
+              SemanticVersion("1.2.0")! > SemanticVersion("1.1.9")!,
+              SemanticVersion("2.0.0")! > SemanticVersion("1.99.99")!,
+              ["1.2", "1.2.3.4", "v1.2.3", "1.02.3", "1.-2.3", "1.2.x", ""].allSatisfy({ SemanticVersion($0) == nil }) else {
+            fputs("self-test failed: strict semantic version parsing and comparison\n", stderr)
+            exit(1)
+        }
+        guard AppUpdateState.checking.menuTitle == "Checking for updates…",
+              AppUpdateState.current.menuTitle == "Nuncid is up to date",
+              AppUpdateState.unavailable.menuTitle == "Update status unavailable",
+              MenuUpdateHeaderPolicy.titles(installedVersion: "1.2.0", updateState: .checking) == [
+                  "Nuncid version 1.2.0", "Checking for updates…"
+              ] else {
+            fputs("self-test failed: honest update menu copy\n", stderr)
+            exit(1)
+        }
+        var knownLengthBody = BoundedResponseAccumulator(maximumBytes: 4)
+        var unknownLengthBody = BoundedResponseAccumulator(maximumBytes: 4)
+        guard BoundedResponseAccumulator.accepts(expectedContentLength: 4, maximumBytes: 4),
+              !BoundedResponseAccumulator.accepts(expectedContentLength: 5, maximumBytes: 4),
+              BoundedResponseAccumulator.accepts(
+                  expectedContentLength: NSURLSessionTransferSizeUnknown,
+                  maximumBytes: 4
+              ),
+              [UInt8]("good".utf8).allSatisfy({ knownLengthBody.append($0) }),
+              knownLengthBody.data == Data("good".utf8),
+              [UInt8]("good".utf8).allSatisfy({ unknownLengthBody.append($0) }),
+              !unknownLengthBody.append(UInt8(ascii: "!")),
+              unknownLengthBody.data == Data("good".utf8) else {
+            fputs("self-test failed: bounded release response body\n", stderr)
+            exit(1)
+        }
+        func releasePayload(tag: String, url: String? = nil, prerelease: Bool = false) -> Data {
+            let releaseURL = url ?? "https://github.com/markus-barta/nuncid/releases/tag/\(tag)"
+            return Data("""
+            {"tag_name":"\(tag)","html_url":"\(releaseURL)","draft":false,"prerelease":\(prerelease)}
+            """.utf8)
+        }
+        let canonicalEndpoint = CanonicalReleasePolicy.endpoint
+        guard CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: releasePayload(tag: "v1.2.0"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .available(
+            version: "1.2.0",
+            url: URL(string: "https://github.com/markus-barta/nuncid/releases/tag/v1.2.0")!
+        ), CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.2.0", data: releasePayload(tag: "v1.2.0"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .current,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.2.0", data: releasePayload(tag: "v1.1.0"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .current,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: releasePayload(tag: "v1.2.0", prerelease: true),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: releasePayload(tag: "nightly"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0",
+            data: releasePayload(tag: "v1.2.0", url: "https://example.com/markus-barta/nuncid/releases/tag/v1.2.0"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: releasePayload(tag: "v1.2.0"),
+            responseURL: URL(string: "https://api.github.com/repos/other/nuncid/releases/latest"), statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "Development", data: releasePayload(tag: "v1.2.0"),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: Data("not json".utf8),
+            responseURL: canonicalEndpoint, statusCode: 200
+        ) == .unavailable,
+        CanonicalReleasePolicy.evaluate(
+            currentVersion: "1.1.0", data: releasePayload(tag: "v1.2.0"),
+            responseURL: canonicalEndpoint, statusCode: 503
+        ) == .unavailable else {
+            fputs("self-test failed: canonical release update policy\n", stderr)
             exit(1)
         }
         guard let catalogueVersion = ReleaseHistory.notes.first?.version else {

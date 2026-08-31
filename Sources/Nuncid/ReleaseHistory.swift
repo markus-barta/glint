@@ -21,6 +21,19 @@ struct ReleaseNote: Identifiable, Equatable {
 enum ReleaseHistory {
     static let notes: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.2.0",
+            isoDate: "2026-08-31",
+            date: "31 August 2026",
+            theme: "One click, one look",
+            headline: "Scan once from the menu bar, exactly when you mean to.",
+            intro: "Nuncid now gives each menu-bar click one clear job: left-click looks once near the pointer, while right-click keeps Settings and every familiar control close by.",
+            items: [
+                ReleaseNoteItem(label: "Look once, instantly", detail: "Left-click the menu-bar icon for one immediate scan without changing your saved shortcut or hover behavior."),
+                ReleaseNoteItem(label: "A quiet confirmation", detail: "A polished, capture-excluded cue confirms the scan and gently reminds you where Settings live, with a calm Reduce Motion path."),
+                ReleaseNoteItem(label: "Version truth at a glance", detail: "Right-click starts with the installed Nuncid version and an honest, bounded update status before the controls you already know.")
+            ]
+        ),
+        ReleaseNote(
             version: "1.1.0",
             isoDate: "2026-08-30",
             date: "30 August 2026",

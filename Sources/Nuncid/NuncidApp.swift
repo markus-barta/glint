@@ -231,6 +231,19 @@ import SwiftUI
         }
     }
 
+    /// A status-item click is a direct, one-shot command. It deliberately bypasses
+    /// the saved shortcut mode so it cannot toggle hover or rewrite preferences.
+    @discardableResult
+    func performMenuBarScan() -> MenuBarScanOutcome {
+        guard screenRecordingGranted else {
+            activity = "Screen Recording required"
+            requestScreenRecording()
+            return .permissionRequired
+        }
+        coordinator.performInspectCommand()
+        return .started
+    }
+
     func setHoverMatchFound(_ found: Bool) {
         hoverMatchFound = activationPreferences.mode == .toggleHover && hoverScanningEnabled && found
     }
@@ -337,7 +350,9 @@ import SwiftUI
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var state: AppState?
+    private var statusItemController: NuncidStatusItemController?
 #if DEBUG
     private var probeOverlay: OverlayController?
     private var probeScanFeedback: [ScanFeedbackController] = []
@@ -347,6 +362,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--self-test") { SelfTests.runAndExit() }
 #if DEBUG
+        if CommandLine.arguments.contains("--menu-click-routing-probe") {
+            MenuBarClickRoutingProbe.runAndExit()
+        }
         if CommandLine.arguments.contains("--permission-status") { print(CGPreflightScreenCaptureAccess() ? "granted" : "missing"); Darwin.exit(0) }
         if let probeIndex = CommandLine.arguments.firstIndex(of: "--resolve-probe"), CommandLine.arguments.indices.contains(probeIndex + 1) {
             let raw = CommandLine.arguments[probeIndex + 1].uppercased()
@@ -365,7 +383,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 #endif
         NSApp.setActivationPolicy(.accessory)
+        let state = AppState()
+        self.state = state
+        let statusItemController = NuncidStatusItemController(state: state)
+        self.statusItemController = statusItemController
 #if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--menu-scan-feedback-capture-probe"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            statusItemController.captureScanFeedbackProbe(
+                to: URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            )
+        }
         if CommandLine.arguments.contains("--scan-feedback-probe") {
             Task { @MainActor [weak self] in self?.showScanFeedbackProbe() }
         }
@@ -1198,79 +1226,7 @@ private struct AboutView: View {
 
 @main struct NuncidApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var state = AppState()
     var body: some Scene {
-        MenuBarExtra {
-            Text(state.screenRecordingGranted ? state.activity : "Screen Recording required").lineLimit(1)
-            if state.activationPreferences.mode == .toggleHover {
-                Label(
-                    state.hoverScanningEnabled
-                        ? (state.hoverMatchFound ? "Hover On · Ticket Found" : "Hover On")
-                        : "Hover Off",
-                    systemImage: state.hoverMatchFound ? "checkmark.circle.fill" : (state.hoverScanningEnabled ? "circle.inset.filled" : "circle")
-                )
-                Button(state.hoverScanningEnabled ? "Turn Hover Off" : "Turn Hover On") { state.performActivationCommand() }
-            }
-            if let hotKeyError = state.hotKeyError {
-                Label(hotKeyError, systemImage: "exclamationmark.triangle.fill")
-            } else {
-                if let inspect = state.inspectHotKey { Text("Activation: \(inspect.label)") }
-                if let pin = state.pinHotKey { Text("Pin: \(pin.label)") }
-            }
-            Divider()
-            Picker("Shortcut behavior", selection: $state.activationPreferences.mode) {
-                ForEach(HoverActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
-            }
-            Divider()
-            if !state.screenRecordingGranted { Button("Grant Screen Recording…") { state.requestScreenRecording() } }
-            Button("Settings…") { state.openSettings() }.keyboardShortcut(",")
-            Button("Version History…") { state.openVersionHistory() }
-            Button("About Nuncid") { state.openAbout() }
-            Button("Quit Nuncid") { NSApp.terminate(nil) }.keyboardShortcut("q")
-        } label: {
-            NuncidMenuBarIcon(
-                mode: state.activationPreferences.mode,
-                hoverEnabled: state.hoverScanningEnabled,
-                matchFound: state.hoverMatchFound
-            )
-        }
-    }
-}
-
-private struct NuncidMenuBarIcon: View {
-    let mode: HoverActivationMode
-    let hoverEnabled: Bool
-    let matchFound: Bool
-    private var state: HoverMenuBarState {
-        .resolve(mode: mode, hoverEnabled: hoverEnabled, matchFound: matchFound)
-    }
-
-    var body: some View {
-        HStack(spacing: 2) {
-            if state == .matchFound {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.green)
-            } else if state == .active {
-                Image(systemName: "viewfinder.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            } else {
-                Image(nsImage: NuncidBrand.menuBarIcon)
-                    .renderingMode(.template)
-                    .opacity(mode == .pressToScan ? 1 : 0.55)
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var accessibilityLabel: String {
-        switch state {
-        case .active: return "Nuncid, hover on"
-        case .matchFound: return "Nuncid, hover on, ticket found"
-        case .inactive:
-            if mode == .off { return "Nuncid, scanning off" }
-            return mode == .pressToScan ? "Nuncid, press to scan" : "Nuncid, hover off"
-        }
+        Settings { EmptyView() }
     }
 }
