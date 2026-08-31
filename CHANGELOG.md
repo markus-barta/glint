@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-31
+
+- Make left-click scan once, keep settings on right-click, and show installed/update status in the menu.
+
 ## [1.1.0] - 2026-08-30
 
 - Keep the active lookup highlighted beside its source, with an optional pinned view for every detected ID.

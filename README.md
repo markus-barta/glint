@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/hero-1.1.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
+  <img src="docs/screenshots/hero-1.2.0.png" alt="Nuncid — point at a ticket and know what matters" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-1.1.0-0A84FF?style=flat-square" alt="Latest release 1.1.0"></a>
+  <a href="https://github.com/markus-barta/nuncid/releases/latest"><img src="https://img.shields.io/badge/release-1.2.0-0A84FF?style=flat-square" alt="Latest release 1.2.0"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat-square&logo=apple" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Swift-5.10-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.10">
   <img src="https://img.shields.io/badge/OCR-local-22C55E?style=flat-square" alt="Local OCR">
@@ -29,7 +29,7 @@
 Nuncid watches a small area around the pointer, recognizes ticket keys and numbers with Apple Vision, and resolves only real matches through your existing Paimos and GitHub sessions. The strongest result gets the space it deserves—key, state, title, metadata, and useful detail—while the next likely matches remain visible before you scroll.
 
 <p align="center">
-  <img src="docs/screenshots/workflow-1.1.0.png" alt="Nuncid keeps the current ticket fixed between previous and next results" width="100%">
+  <img src="docs/screenshots/workflow-1.2.0.png" alt="Nuncid keeps the current ticket fixed between previous and next results" width="100%">
 </p>
 
 | Invoke anywhere | Keep context nearby | Navigate without friction |
@@ -47,7 +47,7 @@ The pinned header keeps its grab handle, pin state, and result position centered
 The active lookup arrives with a one-time luminous lock-on, then remains readable for as long as its card is visible. If you pin the card, **Show all detected IDs** can keep every ID from that scan marked in place: the selected result uses Nuncid blue, while the remaining IDs stay quiet but legible.
 
 <p align="center">
-  <img src="docs/screenshots/lookup-highlight-1.1.0.png" alt="Nuncid highlights the active lookup and keeps all detected IDs visible while pinned" width="100%">
+  <img src="docs/screenshots/lookup-highlight-1.2.0.png" alt="Nuncid highlights the active lookup and keeps all detected IDs visible while pinned" width="100%">
 </p>
 
 These markers ignore mouse input, respect Reduce Motion, use consistent spacing around the source text, and remain excluded from screen capture. They clear as soon as a scroll, app or Space switch, or source-window change could make their saved position stale.
@@ -61,7 +61,7 @@ Activation and presentation are independent on purpose. Left-click the menu bar 
 | <img src="docs/screenshots/menu-hover-off-0.3.2.png" alt="Dimmed Nuncid menu bar icon: hover is off" width="40"> | <img src="docs/screenshots/menu-hover-on-0.3.2.png" alt="Filled viewfinder menu bar icon: hover is on" width="40"> | <img src="docs/screenshots/menu-ticket-found-0.3.2.png" alt="Checkmark menu bar icon: ticket found" width="40"> |
 
 <p align="center">
-  <img src="docs/screenshots/settings-showcase-1.1.0.png" alt="Nuncid activation and spatial card appearance settings" width="100%">
+  <img src="docs/screenshots/settings-showcase-1.2.0.png" alt="Nuncid activation and spatial card appearance settings" width="100%">
 </p>
 
 Nuncid can show zero to six neighboring destinations and offers four text sizes, three presets plus a remembered Custom size, three content densities, and system or solid surfaces. Pinned Card settings also control the global scroll modifier and whether all detected IDs remain visible. Cards adapt their content to the available space instead of forcing every ticket into the same dimensions.
@@ -71,7 +71,7 @@ Nuncid can show zero to six neighboring destinations and offers four text sizes,
 The app’s **Version History** explains each release in concise, positive human language. Open it from the menu, About window, or by clicking the version in Settings; your running version is always highlighted.
 
 <p align="center">
-  <img src="docs/screenshots/version-history-1.1.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
+  <img src="docs/screenshots/version-history-1.2.0.png" alt="Nuncid Version History with the current release highlighted and benefit-led notes" width="100%">
 </p>
 
 ## Smarter resolution, fewer wrong guesses
