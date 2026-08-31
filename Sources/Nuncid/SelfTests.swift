@@ -84,6 +84,22 @@ enum SelfTests {
             fputs("self-test failed: honest update menu copy\n", stderr)
             exit(1)
         }
+        var knownLengthBody = BoundedResponseAccumulator(maximumBytes: 4)
+        var unknownLengthBody = BoundedResponseAccumulator(maximumBytes: 4)
+        guard BoundedResponseAccumulator.accepts(expectedContentLength: 4, maximumBytes: 4),
+              !BoundedResponseAccumulator.accepts(expectedContentLength: 5, maximumBytes: 4),
+              BoundedResponseAccumulator.accepts(
+                  expectedContentLength: NSURLSessionTransferSizeUnknown,
+                  maximumBytes: 4
+              ),
+              [UInt8]("good".utf8).allSatisfy({ knownLengthBody.append($0) }),
+              knownLengthBody.data == Data("good".utf8),
+              [UInt8]("good".utf8).allSatisfy({ unknownLengthBody.append($0) }),
+              !unknownLengthBody.append(UInt8(ascii: "!")),
+              unknownLengthBody.data == Data("good".utf8) else {
+            fputs("self-test failed: bounded release response body\n", stderr)
+            exit(1)
+        }
         func releasePayload(tag: String, url: String? = nil, prerelease: Bool = false) -> Data {
             let releaseURL = url ?? "https://github.com/markus-barta/nuncid/releases/tag/\(tag)"
             return Data("""

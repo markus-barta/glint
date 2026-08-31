@@ -168,6 +168,29 @@ private final class CanonicalReleaseSessionDelegate: NSObject, URLSessionTaskDel
     }
 }
 
+struct BoundedResponseAccumulator {
+    static let releaseMaximumBytes = 128 * 1_024
+
+    let maximumBytes: Int
+    private(set) var data = Data()
+
+    init(maximumBytes: Int = Self.releaseMaximumBytes) {
+        precondition(maximumBytes > 0)
+        self.maximumBytes = maximumBytes
+    }
+
+    static func accepts(expectedContentLength: Int64, maximumBytes: Int = releaseMaximumBytes) -> Bool {
+        expectedContentLength == NSURLSessionTransferSizeUnknown
+            || (expectedContentLength >= 0 && expectedContentLength <= Int64(maximumBytes))
+    }
+
+    mutating func append(_ byte: UInt8) -> Bool {
+        guard data.count < maximumBytes else { return false }
+        data.append(byte)
+        return true
+    }
+}
+
 enum CanonicalReleaseChecker {
     static func check(currentVersion: String) async -> AppUpdateState {
         let configuration = URLSessionConfiguration.ephemeral
@@ -184,18 +207,28 @@ enum CanonicalReleaseChecker {
             delegate: CanonicalReleaseSessionDelegate(),
             delegateQueue: nil
         )
-        defer { session.finishTasksAndInvalidate() }
+        defer { session.invalidateAndCancel() }
         var request = URLRequest(url: CanonicalReleasePolicy.endpoint)
         request.httpMethod = "GET"
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Nuncid/\(currentVersion)", forHTTPHeaderField: "User-Agent")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let response = response as? HTTPURLResponse else { return .unavailable }
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let response = response as? HTTPURLResponse,
+                  response.statusCode == 200,
+                  CanonicalReleasePolicy.isExactEndpoint(response.url) else { return .unavailable }
+            var body = BoundedResponseAccumulator()
+            guard BoundedResponseAccumulator.accepts(
+                expectedContentLength: response.expectedContentLength,
+                maximumBytes: body.maximumBytes
+            ) else { return .unavailable }
+            for try await byte in bytes {
+                guard body.append(byte) else { return .unavailable }
+            }
             return CanonicalReleasePolicy.evaluate(
                 currentVersion: currentVersion,
-                data: data,
+                data: body.data,
                 responseURL: response.url,
                 statusCode: response.statusCode
             )
