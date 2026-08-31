@@ -46,6 +46,22 @@ enum SelfTests {
             fputs("self-test failed: activation shortcut and menu bar state policy\n", stderr)
             exit(1)
         }
+        let emittedHoverStates = [
+            (false, false),
+            (true, false),
+            (true, true),
+            (true, false),
+        ].map { hoverEnabled, matchFound in
+            HoverMenuBarState.resolve(
+                mode: .toggleHover,
+                hoverEnabled: hoverEnabled,
+                matchFound: matchFound
+            )
+        }
+        guard emittedHoverStates == [.inactive, .active, .matchFound, .active] else {
+            fputs("self-test failed: emitted hover state drives the current menu bar icon\n", stderr)
+            exit(1)
+        }
         var menuBarScanCount = 0
         var menuBarOpenCount = 0
         MenuBarClickRouter.route(

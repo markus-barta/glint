@@ -278,9 +278,19 @@ enum CanonicalReleaseChecker {
         ])
         state.$activationPreferences
             .combineLatest(state.$hoverScanningEnabled, state.$hoverMatchFound)
-            .sink { [weak self] _, _, _ in self?.refreshIcon() }
+            .sink { [weak self] preferences, hoverEnabled, matchFound in
+                self?.refreshIcon(
+                    mode: preferences.mode,
+                    hoverEnabled: hoverEnabled,
+                    matchFound: matchFound
+                )
+            }
             .store(in: &cancellables)
-        refreshIcon()
+        refreshIcon(
+            mode: state.activationPreferences.mode,
+            hoverEnabled: state.hoverScanningEnabled,
+            matchFound: state.hoverMatchFound
+        )
         beginUpdateCheck()
     }
 
@@ -310,7 +320,9 @@ enum CanonicalReleaseChecker {
     }
 
     private func openMenu(from button: NSStatusBarButton) {
-        if Date().timeIntervalSince(lastUpdateCheckAt) >= 15 * 60 { beginUpdateCheck() }
+        if Date().timeIntervalSince(lastUpdateCheckAt) >= 15 * 60 {
+            beginUpdateCheck(showCheckingState: false)
+        }
         let menu = makeMenu()
         statusItem.menu = menu
         button.performClick(nil)
@@ -376,9 +388,9 @@ enum CanonicalReleaseChecker {
         return menu
     }
 
-    private func beginUpdateCheck() {
+    private func beginUpdateCheck(showCheckingState: Bool = true) {
         updateTask?.cancel()
-        updateState = .checking
+        if showCheckingState { updateState = .checking }
         lastUpdateCheckAt = Date()
         let currentVersion = NuncidBrand.version
         updateTask = Task { [weak self] in
@@ -410,12 +422,16 @@ enum CanonicalReleaseChecker {
         return item
     }
 
-    private func refreshIcon() {
+    private func refreshIcon(
+        mode: HoverActivationMode,
+        hoverEnabled: Bool,
+        matchFound: Bool
+    ) {
         guard let button = statusItem.button else { return }
         let resolved = HoverMenuBarState.resolve(
-            mode: state.activationPreferences.mode,
-            hoverEnabled: state.hoverScanningEnabled,
-            matchFound: state.hoverMatchFound
+            mode: mode,
+            hoverEnabled: hoverEnabled,
+            matchFound: matchFound
         )
         switch resolved {
         case .matchFound:
@@ -428,10 +444,10 @@ enum CanonicalReleaseChecker {
             button.setAccessibilityLabel("Nuncid, hover on")
         case .inactive:
             button.image = NuncidBrand.menuBarIcon
-            button.contentTintColor = state.activationPreferences.mode == .pressToScan ? .labelColor : .secondaryLabelColor
-            let label = state.activationPreferences.mode == .off
+            button.contentTintColor = mode == .pressToScan ? .labelColor : .secondaryLabelColor
+            let label = mode == .off
                 ? "Nuncid, scanning off. Left-click to scan once; right-click for Settings."
-                : (state.activationPreferences.mode == .pressToScan
+                : (mode == .pressToScan
                     ? "Nuncid, press to scan. Left-click to scan once; right-click for Settings."
                     : "Nuncid, hover off. Left-click to scan once; right-click for Settings.")
             button.setAccessibilityLabel(label)
