@@ -54,7 +54,7 @@ These markers ignore mouse input, respect Reduce Motion, use consistent spacing 
 
 ## Your shortcuts. Your card.
 
-Activation and presentation are independent on purpose. Record any safe global shortcut, choose Off, Toggle Hover, or Press to Scan, and tune how much information the card shows. The menu bar icon shows when hover is active and confirms when it finds a ticket. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
+Activation and presentation are independent on purpose. Left-click the menu bar icon for one immediate scan in any shortcut mode; right-click it for Settings and the existing controls. Record any safe global shortcut, choose Off, Toggle Hover, or Press to Scan, and tune how much information the card shows. The menu bar icon shows when hover is active and confirms when it finds a ticket. Settings apply immediately; the appearance preview uses local sample data and never contacts a tracker.
 
 | Hover off | Hover on | Ticket found |
 | --- | --- | --- |
@@ -96,6 +96,8 @@ gh pr view … --json …
 ```
 
 Those tools may contact their configured services using your existing credentials. Nuncid never writes to either service. Scan and lookup-marker panels opt out of screen capture, and the only learned hint is a bounded, decaying project association keyed by application bundle identifier. Settings can clear it together with cached titles.
+
+Nuncid also makes an infrequent, bounded, read-only HTTPS request to GitHub's public latest-release endpoint for `markus-barta/nuncid`. It sends no credentials, screenshots, OCR text, ticket content, or telemetry; it accepts only a stable semantic-version tag and its matching canonical GitHub release URL. Offline or invalid responses simply leave update status unavailable.
 
 ## Install
 
