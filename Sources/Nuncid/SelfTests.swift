@@ -49,13 +49,23 @@ enum SelfTests {
         var menuBarScanCount = 0
         var menuBarOpenCount = 0
         MenuBarClickRouter.route(
-            .left,
+            .left(controlKey: false),
             scanOnce: { menuBarScanCount += 1 },
             openMenu: { menuBarOpenCount += 1 }
         )
         guard menuBarScanCount == 1, menuBarOpenCount == 0,
-              MenuBarClickRoutingPolicy.action(for: .left) == .scanOnce else {
+              MenuBarClickRoutingPolicy.action(for: .left(controlKey: false)) == .scanOnce else {
             fputs("self-test failed: menu bar left click exactly-once routing\n", stderr)
+            exit(1)
+        }
+        MenuBarClickRouter.route(
+            .left(controlKey: true),
+            scanOnce: { menuBarScanCount += 1 },
+            openMenu: { menuBarOpenCount += 1 }
+        )
+        guard menuBarScanCount == 1, menuBarOpenCount == 1,
+              MenuBarClickRoutingPolicy.action(for: .left(controlKey: true)) == .openMenu else {
+            fputs("self-test failed: menu bar control-click zero-scan secondary routing\n", stderr)
             exit(1)
         }
         MenuBarClickRouter.route(
@@ -63,9 +73,13 @@ enum SelfTests {
             scanOnce: { menuBarScanCount += 1 },
             openMenu: { menuBarOpenCount += 1 }
         )
-        guard menuBarScanCount == 1, menuBarOpenCount == 1,
+        guard menuBarScanCount == 1, menuBarOpenCount == 2,
               MenuBarClickRoutingPolicy.action(for: .right) == .openMenu else {
             fputs("self-test failed: menu bar right click zero-scan routing\n", stderr)
+            exit(1)
+        }
+        guard MenuBarAccessibilityPolicy.openMenuActionName == "Open Nuncid menu" else {
+            fputs("self-test failed: menu bar accessibility menu action\n", stderr)
             exit(1)
         }
         guard SemanticVersion("1.2.0") == SemanticVersion("1.2.0"),

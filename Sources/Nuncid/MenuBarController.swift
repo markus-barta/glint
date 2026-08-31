@@ -7,7 +7,7 @@ enum MenuBarScanOutcome: Equatable {
 }
 
 enum MenuBarPointerClick: Equatable {
-    case left
+    case left(controlKey: Bool)
     case right
 }
 
@@ -19,10 +19,14 @@ enum MenuBarClickAction: Equatable {
 enum MenuBarClickRoutingPolicy {
     static func action(for click: MenuBarPointerClick) -> MenuBarClickAction {
         switch click {
-        case .left: return .scanOnce
+        case let .left(controlKey): return controlKey ? .openMenu : .scanOnce
         case .right: return .openMenu
         }
     }
+}
+
+enum MenuBarAccessibilityPolicy {
+    static let openMenuActionName = "Open Nuncid menu"
 }
 
 enum MenuBarClickRouter {
@@ -265,6 +269,13 @@ enum CanonicalReleaseChecker {
         button.target = self
         button.action = #selector(handleStatusItemClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: MenuBarAccessibilityPolicy.openMenuActionName) { [weak self, weak button] in
+                guard let self, let button else { return false }
+                self.openMenu(from: button)
+                return true
+            },
+        ])
         state.$activationPreferences
             .combineLatest(state.$hoverScanningEnabled, state.$hoverMatchFound)
             .sink { [weak self] _, _, _ in self?.refreshIcon() }
@@ -277,7 +288,7 @@ enum CanonicalReleaseChecker {
         guard let event = NSApp.currentEvent else { return }
         let click: MenuBarPointerClick
         switch event.type {
-        case .leftMouseUp: click = .left
+        case .leftMouseUp: click = .left(controlKey: event.modifierFlags.contains(.control))
         case .rightMouseUp: click = .right
         default: return
         }
@@ -304,7 +315,6 @@ enum CanonicalReleaseChecker {
         statusItem.menu = menu
         button.performClick(nil)
         statusItem.menu = nil
-        menuActionTargets.removeAll()
     }
 
     private func makeMenu() -> NSMenu {
@@ -428,7 +438,9 @@ enum CanonicalReleaseChecker {
         }
         button.image?.isTemplate = true
         button.toolTip = "Left-click to scan once · Right-click for Settings"
-        button.setAccessibilityHelp("Left-click to scan once; right-click for Settings and controls.")
+        button.setAccessibilityHelp(
+            "Left-click to scan once; right-click, Control-click, or use Open Nuncid menu for Settings and controls."
+        )
     }
 
 #if DEBUG
@@ -578,7 +590,7 @@ enum MenuBarClickRoutingProbe {
     static func runAndExit() -> Never {
         var scans = 0
         var menus = 0
-        MenuBarClickRouter.route(.left, scanOnce: { scans += 1 }, openMenu: { menus += 1 })
+        MenuBarClickRouter.route(.left(controlKey: false), scanOnce: { scans += 1 }, openMenu: { menus += 1 })
         guard scans == 1, menus == 0 else { Darwin.exit(1) }
         MenuBarClickRouter.route(.right, scanOnce: { scans += 1 }, openMenu: { menus += 1 })
         guard scans == 1, menus == 1 else { Darwin.exit(1) }
